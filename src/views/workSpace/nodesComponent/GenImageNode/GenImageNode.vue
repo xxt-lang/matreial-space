@@ -4,8 +4,8 @@
  *
  * 设计尺寸 450×500（高度会随提示词文本域高度变化），纵向三段式：
  *   上：图片展示区（支持本地上传 / 更换）
- *   中：工具栏（完美像素画 / 高清像素画 / 模型选择 / 尺寸选择 / 编辑）
- *   下：提示词输入 + 生成按钮（双击节点进入编辑态时展开）
+ *   中：工具栏（完美像素画 / 高清像素画 / 尺寸选择 / 编辑）
+ *   下：提示词输入 + 操作行（模型选择在左、生成按钮在右，双击节点进入编辑态时展开）
  *
  * 节点整体支持等比缩放（data.scale）：新建节点默认 0.5（设计尺寸的一半），
  * 选中单个节点后按住 Alt 滚动滚轮即可放大 / 缩小（见 work.vue），
@@ -19,7 +19,8 @@ import ImageStage from './component/ImageStage.vue'
 import NodeToolbar from './component/NodeToolbar.vue'
 import UpstreamPanel from './component/UpstreamPanel.vue'
 import PromptInput from '../../assistComponent/PromptInput.vue'
-import { DEFAULT_MODEL } from './component/modelOptions.js'
+import SelectMenu from '../../assistComponent/SelectMenu.vue'
+import { DEFAULT_MODEL, MODEL_OPTIONS } from './component/modelOptions.js'
 import { DEFAULT_SCALE, clampScale } from './component/nodeScale.js'
 
 const props = defineProps({
@@ -249,10 +250,8 @@ function onUpload(payload) {
       <template v-if="isEditing">
         <NodeToolbar
           :mode="mode"
-          :model="model"
           :size="size"
           @update:mode="mode = $event"
-          @update:model="model = $event"
           @update:size="size = $event"
           @edit="onEdit"
         />
@@ -274,7 +273,17 @@ function onUpload(payload) {
           @submit="onGenerate"
           @abort="onAbort"
           @resize="onPromptResize"
-        />
+        >
+          <!-- 模型选择放在生成按钮同一行的左侧 -->
+          <template #actions>
+            <SelectMenu
+              :model-value="model"
+              :options="MODEL_OPTIONS"
+              placeholder="选择模型"
+              @update:model-value="model = $event"
+            />
+          </template>
+        </PromptInput>
       </template>
     </div>
 

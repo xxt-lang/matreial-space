@@ -16,7 +16,8 @@ import { createGeneration } from './api/gen.js'
 import { DEFAULT_SCALE, SCALE_STEP, clampScale } from './nodesComponent/GenImageNode/component/nodeScale.js'
 import { VUE_FLOW_SHORTCUT_PROPS, isAltPressed, preventBrowserZoom } from './shortcuts/index.js'
 
-const { screenToFlowCoordinate, getSelectedNodes, updateNodeData } = useVueFlow()
+const { screenToFlowCoordinate, flowToScreenCoordinate, getNodes, getSelectedNodes, updateNodeData } =
+  useVueFlow()
 
 /**
  * 多选节点（Ctrl 点击）的选择顺序
@@ -115,12 +116,78 @@ async function onMenuSelect(key) {
 // 拖线开始时快照「Ctrl 多选」的节点，用于批量连线
 let batchSourceIds = []
 
-function onConnectStart() {
+function onConnectStart(connecting) {
   const selectedIds = getSelectedNodes.value.map((node) => node.id)
   // 以「Ctrl 选择顺序」为准排序；未记录到顺序的选中节点追加在后面
   const ordered = selectionOrder.value.filter((id) => selectedIds.includes(id))
   const rest = selectedIds.filter((id) => !ordered.includes(id))
   batchSourceIds = [...ordered, ...rest]
+  startBatchPreview(connecting)
+}
+
+/* ---------------- 批量连线预览 ---------------- */
+
+/** 批量连线预览的连线路径（画布容器屏幕坐标系的 SVG path） */
+const previewPaths = ref([])
+
+/** 结束预览的清理函数（拖拽中为函数，未拖拽时为 null） */
+let stopBatchPreview = null
+
+/** 结束批量连线预览（拖拽结束、组件卸载时调用） */
+function endBatchPreview() {
+  stopBatchPreview?.()
+}
+
+/** 与 vue-flow 默认连线一致的贝塞尔路径 */
+function bezierPath(from, to) {
+  const curve = Math.abs(to.x - from.x) * 0.5
+  return `M ${from.x},${from.y} C ${from.x + curve},${from.y} ${to.x - curve},${to.y} ${to.x},${to.y}`
+}
+
+/**
+ * 开始批量连线预览
+ * Ctrl 多选后从其中一个节点的输出点起拖时，把其余选中节点的连线也画出来，
+ * 让「这些节点都会连过去」在拖拽过程中就可见（落点确认逻辑仍由 onConnect 负责）
+ */
+function startBatchPreview(connecting) {
+  const container = workspaceRef.value
+  const from = connecting?.nodeId
+  // 只有「从选中节点的输出点起拖」且还有别的选中节点时才需要预览
+  if (!container || connecting?.handleType !== 'source' || !batchSourceIds.includes(from)) return
+
+  const others = batchSourceIds.filter((id) => id !== from)
+  if (!others.length) return
+
+  // 拖拽过程中容器不会移动，边界算一次即可
+  const rect = container.getBoundingClientRect()
+
+  function onPointerMove(event) {
+    const pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+    previewPaths.value = others
+      .map((id) => getNodes.value.find((node) => node.id === id))
+      .filter(Boolean)
+      .map((node) => {
+        // 输出点在节点右侧、垂直居中（与节点上 Handle 的位置一致）
+        const anchor = flowToScreenCoordinate({
+          x: node.position.x + (node.dimensions?.width ?? 0),
+          y: node.position.y + (node.dimensions?.height ?? 0) / 2,
+        })
+        return bezierPath(anchor, pointer)
+      })
+  }
+
+  function cleanup() {
+    window.removeEventListener('pointermove', onPointerMove)
+    window.removeEventListener('pointerup', cleanup)
+    window.removeEventListener('pointercancel', cleanup)
+    previewPaths.value = []
+    stopBatchPreview = null
+  }
+
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', cleanup)
+  window.addEventListener('pointercancel', cleanup)
+  stopBatchPreview = cleanup
 }
 
 /** 连线去重键：同一对「上游 → 下游」只允许存在一条连线 */
@@ -265,6 +332,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopWheelGuard?.()
   workspaceRef.value?.removeEventListener('wheel', onWheelZoomNode, { capture: true })
+  endBatchPreview()
 })
 
 // 自身节点也屏蔽浏览器原生菜单（pane 之外的区域）
@@ -290,6 +358,7 @@ function preventNativeMenu(e) {
       @move-start="closeMenu"
       @connect-start="onConnectStart"
       @connect="onConnect"
+      @connect-end="endBatchPreview"
     >
       <!-- 生图节点：自定义节点组件 -->
       <template #node-GenImageNode="nodeProps">
@@ -302,6 +371,11 @@ function preventNativeMenu(e) {
         />
       </template>
     </VueFlow>
+
+    <!-- 批量连线预览：Ctrl 多选后拖线时，其余选中节点的连线一并展示（虚线，不接收指针事件） -->
+    <svg v-if="previewPaths.length" class="work-space__preview" aria-hidden="true">
+      <path v-for="(path, index) in previewPaths" :key="index" :d="path" />
+    </svg>
 
     <ContextMenu
       :x="menu.x"
@@ -379,6 +453,24 @@ function preventNativeMenu(e) {
 
 .work-space :deep(.vue-flow__pane) {
   background: transparent;
+}
+
+/* 批量连线预览：盖在画布上的虚线，只做展示，不接收指针事件 */
+.work-space__preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.work-space__preview path {
+  fill: none;
+  stroke: var(--accent, #f0a63d);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.8;
 }
 
 /* 自定义节点容器：去掉 vue-flow 默认外观，尺寸完全由节点组件决定 */

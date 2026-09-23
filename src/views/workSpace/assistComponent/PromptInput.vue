@@ -9,6 +9,7 @@
  * - 文本中所有 @ 字符都会染蓝（见 AtKeyword 装饰插件）
  * - 引用节点保存来源节点 id（渲染为 data-id 隐藏信息），
  *   配合 validMentionIds 可校验引用是否失效（如来源节点已被删除）：失效的引用会置灰
+ * - 插槽：`actions` 渲染在操作行左侧（如模型选择），右侧固定是提交 / 中断按钮
  * - 提交按钮内置「防抖 + 防重复提交」：submitDebounce 间隔内的重复点击直接忽略；
  *   loading 为 true 时按钮切换成「中断」态并发出 abort 信号，
  *   真正的请求发起 / 中断由使用方处理（见 README「开发约定」）
@@ -432,7 +433,8 @@ function syncDocMentions(editorInstance) {
  * - 按点击位置定位光标；点不到正文（如文字下方空白）就落到末尾
  */
 function onPanelClick(event) {
-  if (event.target?.closest?.('button, a, input, select, textarea, .prompt-input__options')) return
+  const interactive = 'button, a, input, select, textarea, .prompt-input__options, .select-menu'
+  if (event.target?.closest?.(interactive)) return
 
   const instance = editor.value
   if (!instance || instance.isDestroyed) return
@@ -608,16 +610,23 @@ onBeforeUnmount(() => {
         有 {{ invalidMentions.length }} 处引用的节点已不存在，建议重新选择上游节点
       </p>
 
-      <button
-        ref="submitRef"
-        class="prompt-input__submit"
-        :class="{ 'is-aborting': loading }"
-        type="button"
-        :disabled="!loading && !canSubmit"
-        @click="onSubmitClick"
-      >
-        {{ loading ? abortText : submitText }}
-      </button>
+      <!-- 操作行：左侧是 actions 插槽（如模型选择），右侧是提交 / 中断按钮 -->
+      <div class="prompt-input__actions">
+        <div class="prompt-input__actions-left">
+          <slot name="actions" />
+        </div>
+
+        <button
+          ref="submitRef"
+          class="prompt-input__submit"
+          :class="{ 'is-aborting': loading }"
+          type="button"
+          :disabled="!loading && !canSubmit"
+          @click="onSubmitClick"
+        >
+          {{ loading ? abortText : submitText }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -629,7 +638,7 @@ onBeforeUnmount(() => {
   background: var(--surface-2, #1b2029);
 }
 
-/* 统一 box：文本域、引用内容与提交按钮的公共容器，背景与边框都在这里 */
+/* 统一 box：文本域与操作行的公共容器，背景与边框都在这里 */
 .prompt-input__box {
   position: relative;
   display: flex;
@@ -782,10 +791,25 @@ onBeforeUnmount(() => {
 
 /* ---------------- 提交按钮 ---------------- */
 
+/* ---------------- 操作行：左插槽 + 右按钮 ---------------- */
+
+.prompt-input__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompt-input__actions-left {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 /* 紧凑按钮，靠右排列（不占满整行） */
 .prompt-input__submit {
   flex: none;
-  align-self: flex-end;
   box-sizing: border-box;
   height: 30px;
   padding: 0 18px;
