@@ -5,15 +5,31 @@
  * - 画布空白处右键 → 弹出上下文菜单（生图 / 生成视频 / 生成地图）
  * - 选择「生图」→ 在落点创建 GenImageNode 节点
  */
-import { nextTick, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { MarkerType, VueFlow, useVueFlow } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import ContextMenu from './assistComponent/ContextMenu.vue'
 import GenImageNode from './nodesComponent/GenImageNode/GenImageNode.vue'
-import { VUE_FLOW_SHORTCUT_PROPS } from './shortcuts/index.js'
+import { VUE_FLOW_SHORTCUT_PROPS, preventBrowserZoom } from './shortcuts/index.js'
 
-const { screenToFlowCoordinate } = useVueFlow()
+const { screenToFlowCoordinate, getSelectedNodes } = useVueFlow()
+
+/**
+ * 多选节点（Ctrl 点击）的选择顺序
+ * getSelectedNodes 返回的是 nodes 数组顺序，这里额外记录「选择先后」，
+ * 供批量连线等需要按选择顺序处理的场景使用
+ */
+const selectionOrder = ref([])
+
+watch(
+  () => getSelectedNodes.value.map((node) => node.id),
+  (ids) => {
+    const kept = selectionOrder.value.filter((id) => ids.includes(id))
+    const added = ids.filter((id) => !kept.includes(id))
+    selectionOrder.value = [...kept, ...added]
+  },
+)
 
 // 连线默认样式：终点（target 端）带箭头
 const EDGE_OPTIONS = {
@@ -81,12 +97,41 @@ async function onMenuSelect(key) {
   })
 }
 
+// 拖线开始时快照「Ctrl 多选」的节点，用于批量连线
+let batchSourceIds = []
+
+function onConnectStart() {
+  const selectedIds = getSelectedNodes.value.map((node) => node.id)
+  // 以「Ctrl 选择顺序」为准排序；未记录到顺序的选中节点追加在后面
+  const ordered = selectionOrder.value.filter((id) => selectedIds.includes(id))
+  const rest = selectedIds.filter((id) => !ordered.includes(id))
+  batchSourceIds = [...ordered, ...rest]
+}
+
 // 节点连线：vue-flow 默认 autoConnect 为 false，这里手动把连接写入 edges
 function onConnect(connection) {
-  edges.value.push({
-    ...connection,
-    id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
-  })
+  const { source, target, sourceHandle, targetHandle } = connection
+  const stamp = Date.now()
+  const batch = [{ ...connection, id: `edge-${source}-${target}-${stamp}` }]
+
+  // 多选后从其中一个节点拉线：其余选中节点用相同位置的连接点连到同一目标
+  if (batchSourceIds.length > 1 && batchSourceIds.includes(source)) {
+    batchSourceIds
+      // 排除起始节点自身与目标节点（其余选中节点恰好是目标时会产生自环）
+      .filter((id) => id !== source && id !== target)
+      .forEach((id, index) => {
+        batch.push({
+          id: `edge-${id}-${target}-${stamp}-${index}`,
+          source: id,
+          target,
+          sourceHandle,
+          targetHandle,
+        })
+      })
+  }
+
+  edges.value.push(...batch)
+  batchSourceIds = []
 }
 
 // 节点「编辑」回调：待接入编辑面板
@@ -106,6 +151,18 @@ function onNodeUpload({ id, name, type, size }) {
   // TODO: 调用 api/ 上传接口，成功后将节点的 data.image 替换为返回的远程地址
 }
 
+// 画布容器：屏蔽浏览器「Ctrl / ⌘ + 滚轮」的整页缩放
+const workspaceRef = ref(null)
+let stopWheelGuard = null
+
+onMounted(() => {
+  if (workspaceRef.value) stopWheelGuard = preventBrowserZoom(workspaceRef.value)
+})
+
+onBeforeUnmount(() => {
+  stopWheelGuard?.()
+})
+
 // 自身节点也屏蔽浏览器原生菜单（pane 之外的区域）
 function preventNativeMenu(e) {
   e.preventDefault()
@@ -113,7 +170,7 @@ function preventNativeMenu(e) {
 </script>
 
 <template>
-  <div class="work-space" @contextmenu="preventNativeMenu">
+  <div ref="workspaceRef" class="work-space" @contextmenu="preventNativeMenu">
     <VueFlow
       v-model:nodes="nodes"
       v-model:edges="edges"
@@ -126,6 +183,7 @@ function preventNativeMenu(e) {
       @pane-context-menu="openMenu"
       @pane-click="closeMenu"
       @move-start="closeMenu"
+      @connect-start="onConnectStart"
       @connect="onConnect"
     >
       <!-- 生图节点：自定义节点组件 -->

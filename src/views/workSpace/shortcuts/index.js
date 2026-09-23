@@ -7,7 +7,7 @@
  *    在 <VueFlow v-bind="VUE_FLOW_SHORTCUT_PROPS"> 一次性注入；
  * 3. SHORTCUTS 同时作为快捷键帮助面板的数据源（含文案与键位显示）。
  */
-import { MOD, formatKeys } from './keys.js'
+import { MOD, formatKeys, isModPressed } from './keys.js'
 
 export { IS_MAC, MOD, formatKeys, isModPressed } from './keys.js'
 
@@ -73,4 +73,21 @@ export const VUE_FLOW_SHORTCUT_PROPS = {
 /** 按 id 取快捷键定义（复用键位文案时使用） */
 export function getShortcut(id) {
   return SHORTCUTS.find((item) => item.id === id) ?? null
+}
+
+/**
+ * 屏蔽浏览器「Ctrl / ⌘ + 滚轮」的整页缩放
+ *
+ * 背景：多选快捷键就是 Ctrl，用户按着 Ctrl 滚动画布时很容易顺手触发浏览器缩放。
+ * 注意：wheel 必须用 { passive: false } 注册，否则 preventDefault 不生效。
+ *
+ * @param {HTMLElement} element 监听容器（一般是画布根元素）
+ * @returns {() => void} 取消监听的函数
+ */
+export function preventBrowserZoom(element) {
+  const handler = (event) => {
+    if (isModPressed(event)) event.preventDefault()
+  }
+  element.addEventListener('wheel', handler, { passive: false })
+  return () => element.removeEventListener('wheel', handler)
 }

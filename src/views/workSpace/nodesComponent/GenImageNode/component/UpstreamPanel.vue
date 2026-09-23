@@ -1,12 +1,21 @@
 <script setup>
 /**
  * 上游节点展示（GenImageNode 私有子组件）
- * 展示通过连线指向当前节点的上游节点，按顺序显示其缩略图
+ * 展示通过连线指向当前节点的上游节点：缩略图 + 序号角标
+ * 悬浮时右上角出现删除按钮，用于断开该条连线
  */
 defineProps({
   /** 上游节点列表（vue-flow Node 数组） */
   nodes: { type: Array, default: () => [] },
 })
+
+const emit = defineEmits(['remove'])
+
+/** 悬停提示：`#序号 名称` */
+function itemTitle(node) {
+  const label = node.data?.label || node.id
+  return node.data?.index ? `#${node.data.index} ${label}` : label
+}
 </script>
 
 <template>
@@ -18,7 +27,7 @@ defineProps({
         v-for="node in nodes"
         :key="node.id"
         class="upstream-panel__item"
-        :title="node.data?.label || node.id"
+        :title="itemTitle(node)"
       >
         <img
           v-if="node.data?.image"
@@ -28,6 +37,17 @@ defineProps({
           draggable="false"
         />
         <span v-else class="upstream-panel__thumb upstream-panel__thumb--empty" />
+
+        <span v-if="node.data?.index" class="upstream-panel__seq">#{{ node.data.index }}</span>
+
+        <button
+          class="upstream-panel__remove nodrag"
+          type="button"
+          title="删除该连线"
+          @click.stop="emit('remove', node.id)"
+        >
+          ×
+        </button>
       </li>
     </ul>
   </section>
@@ -59,6 +79,7 @@ defineProps({
 }
 
 .upstream-panel__item {
+  position: relative;
   flex: none;
 }
 
@@ -76,5 +97,50 @@ defineProps({
 .upstream-panel__thumb--empty {
   background-image: radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 8px 8px;
+}
+
+/* 上游节点序号角标（贴缩略图右下角，避免超出容器被裁切） */
+.upstream-panel__seq {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--accent-ink, #201404);
+  background: var(--accent, #f0a63d);
+  border-radius: 999px;
+}
+
+/* 删除连线按钮：默认隐藏，悬浮该项时出现（贴缩略图右上角，避免被列表裁切） */
+.upstream-panel__remove {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text, #e9edf5);
+  background: rgba(13, 17, 23, 0.85);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.upstream-panel__item:hover .upstream-panel__remove {
+  opacity: 1;
+}
+
+.upstream-panel__remove:hover {
+  color: #fff;
+  background: #e5484d;
 }
 </style>

@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Tool caches
+.playwright-cli/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

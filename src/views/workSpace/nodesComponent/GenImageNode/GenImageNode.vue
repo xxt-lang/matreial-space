@@ -25,16 +25,21 @@ const props = defineProps({
 
 const emit = defineEmits(['edit', 'generate', 'upload'])
 
-const { updateNodeData, getSelectedNodes, getNodes, getEdges } = useVueFlow()
+const { updateNodeData, getSelectedNodes, getNodes, getEdges, removeEdges } = useVueFlow()
 
 /** 节点被选中（点击）时进入编辑态，展开工具栏与输入区 */
 const isActive = computed(() => getSelectedNodes.value.some((n) => n.id === props.id))
 
 /** 通过连线指向当前节点的上游节点 */
 const upstreamNodes = computed(() => {
-  const sourceIds = getEdges.value.filter((e) => e.target === props.id).map((e) => e.source)
+  const sourceIds = getEdges.value
+    .filter((e) => e.target === props.id && e.source !== props.id)
+    .map((e) => e.source)
   if (!sourceIds.length) return []
-  return getNodes.value.filter((n) => sourceIds.includes(n.id))
+  // 按连线顺序（即批量创建顺序）排列，保持与上游节点的选择顺序一致
+  return sourceIds
+    .map((id) => getNodes.value.find((n) => n.id === id))
+    .filter(Boolean)
 })
 
 const prompt = ref(props.data.prompt ?? '')
@@ -52,6 +57,12 @@ watch(size, (v) => updateNodeData(props.id, { size: v }))
 
 function onEdit() {
   emit('edit', { id: props.id, data: props.data })
+}
+
+/** 删除「上游节点 → 当前节点」这条连线 */
+function onRemoveUpstream(sourceId) {
+  const edge = getEdges.value.find((e) => e.source === sourceId && e.target === props.id)
+  if (edge) removeEdges([edge.id])
 }
 
 /**
@@ -113,7 +124,11 @@ function onUpload(payload) {
       />
 
       <!-- 存在上游节点时，在工具栏与输入区之间展示 -->
-      <UpstreamPanel v-if="upstreamNodes.length" :nodes="upstreamNodes" />
+      <UpstreamPanel
+        v-if="upstreamNodes.length"
+        :nodes="upstreamNodes"
+        @remove="onRemoveUpstream"
+      />
 
       <PromptPanel v-model="prompt" @generate="onGenerate" />
     </template>
