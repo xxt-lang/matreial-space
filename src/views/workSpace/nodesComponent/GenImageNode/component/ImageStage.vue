@@ -173,10 +173,11 @@ function onFileChange(event) {
   color: #ff7a7a;
 }
 
+/* 「更换」按钮放右下角，把右上角让给节点的缩放比例提示 */
 .image-stage__change {
   position: absolute;
-  top: 10px;
   right: 10px;
+  bottom: 10px;
   padding: 4px 10px;
   font: inherit;
   font-size: 11px;

@@ -7,9 +7,9 @@
  *    在 <VueFlow v-bind="VUE_FLOW_SHORTCUT_PROPS"> 一次性注入；
  * 3. SHORTCUTS 同时作为快捷键帮助面板的数据源（含文案与键位显示）。
  */
-import { MOD, formatKeys, isModPressed } from './keys.js'
+import { ALT, MOD, formatKeys, isModPressed } from './keys.js'
 
-export { IS_MAC, MOD, formatKeys, isModPressed } from './keys.js'
+export { IS_MAC, ALT, MOD, formatKeys, isModPressed, isAltPressed } from './keys.js'
 
 const SHIFT = 'Shift'
 const SPACE = 'Space'
@@ -44,6 +44,12 @@ export const SHORTCUTS = [
     keys: ['wheel'],
     title: '缩放画布',
     description: `滚轮缩放；按住 ${formatKeys([MOD])} 时滚轮改为平移`,
+  },
+  {
+    id: 'nodeZoom',
+    keys: [ALT, 'wheel'],
+    title: '缩放节点',
+    description: `选中单个节点后，按住 ${formatKeys([ALT])} 滚动滚轮，放大 / 缩小该节点`,
   },
   {
     id: 'remove',

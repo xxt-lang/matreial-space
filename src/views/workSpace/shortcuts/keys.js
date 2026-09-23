@@ -11,9 +11,12 @@ export const IS_MAC =
 /** 平台修饰键：macOS 用 Meta，其他平台用 Control */
 export const MOD = IS_MAC ? 'Meta' : 'Control'
 
+/** 节点缩放修饰键：Alt */
+export const ALT = 'Alt'
+
 const LABELS = IS_MAC
-  ? { Meta: '⌘', Control: 'Ctrl', Shift: 'Shift', Backspace: '⌫', Delete: '⌦', Space: 'Space' }
-  : { Meta: 'Win', Control: 'Ctrl', Shift: 'Shift', Backspace: 'Backspace', Delete: 'Delete', Space: 'Space' }
+  ? { Meta: '⌘', Control: 'Ctrl', Shift: 'Shift', Alt: '⌥', Backspace: '⌫', Delete: '⌦', Space: 'Space' }
+  : { Meta: 'Win', Control: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Backspace: 'Backspace', Delete: 'Delete', Space: 'Space' }
 
 const ACTIONS = { click: '点击', drag: '拖拽', wheel: '滚轮' }
 
@@ -27,4 +30,9 @@ export function formatKeys(keys) {
 /** 判断事件是否按下了平台修饰键（Ctrl / ⌘） */
 export function isModPressed(event) {
   return IS_MAC ? event.metaKey : event.ctrlKey
+}
+
+/** 判断事件是否按下了节点缩放修饰键（Alt） */
+export function isAltPressed(event) {
+  return event.altKey
 }

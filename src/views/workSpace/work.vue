@@ -11,9 +11,10 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import ContextMenu from './assistComponent/ContextMenu.vue'
 import GenImageNode from './nodesComponent/GenImageNode/GenImageNode.vue'
-import { VUE_FLOW_SHORTCUT_PROPS, preventBrowserZoom } from './shortcuts/index.js'
+import { DEFAULT_SCALE, SCALE_STEP, clampScale } from './nodesComponent/GenImageNode/component/nodeScale.js'
+import { VUE_FLOW_SHORTCUT_PROPS, isAltPressed, preventBrowserZoom } from './shortcuts/index.js'
 
-const { screenToFlowCoordinate, getSelectedNodes } = useVueFlow()
+const { screenToFlowCoordinate, getSelectedNodes, updateNodeData } = useVueFlow()
 
 /**
  * 多选节点（Ctrl 点击）的选择顺序
@@ -64,8 +65,18 @@ const NODE_TYPE = {
 }
 
 // 各类型节点创建时的初始 data
+// scale：节点缩放系数（1 = 设计尺寸，默认值为设计尺寸的一半，见 nodeScale.js）
+// promptInputHeight：提示词文本域高度（0 = 默认两行），拖拽调节后由节点自行写回
 const NODE_DEFAULT_DATA = {
-  image: { prompt: '', mode: 'hd', size: 64, image: '', status: 'idle' },
+  image: {
+    prompt: '',
+    mode: 'hd',
+    size: 64,
+    image: '',
+    status: 'idle',
+    scale: DEFAULT_SCALE,
+    promptInputHeight: 0,
+  },
 }
 
 function openMenu(event) {
@@ -155,12 +166,36 @@ function onNodeUpload({ id, name, type, size }) {
 const workspaceRef = ref(null)
 let stopWheelGuard = null
 
+/**
+ * Alt + 滚轮：缩放「当前唯一选中的节点」
+ * - 只有恰好选中一个节点时生效；滚轮向上放大、向下缩小，结果写回该节点 data.scale
+ * - 监听挂在画布容器并走捕获阶段：命中后阻止冒泡，避免同时触发画布自身的滚轮行为
+ */
+function onWheelZoomNode(event) {
+  if (!isAltPressed(event)) return
+  const selected = getSelectedNodes.value
+  if (selected.length !== 1) return
+  const [node] = selected
+  // 仅支持带缩放能力的节点类型（当前只有生图节点）
+  if (node.type !== NODE_TYPE.image) return
+
+  event.preventDefault()
+  event.stopPropagation()
+
+  const current = clampScale(node.data?.scale ?? DEFAULT_SCALE)
+  const next = clampScale(current + (event.deltaY < 0 ? SCALE_STEP : -SCALE_STEP))
+  if (next !== current) updateNodeData(node.id, { scale: next })
+}
+
 onMounted(() => {
-  if (workspaceRef.value) stopWheelGuard = preventBrowserZoom(workspaceRef.value)
+  if (!workspaceRef.value) return
+  stopWheelGuard = preventBrowserZoom(workspaceRef.value)
+  workspaceRef.value.addEventListener('wheel', onWheelZoomNode, { capture: true, passive: false })
 })
 
 onBeforeUnmount(() => {
   stopWheelGuard?.()
+  workspaceRef.value?.removeEventListener('wheel', onWheelZoomNode, { capture: true })
 })
 
 // 自身节点也屏蔽浏览器原生菜单（pane 之外的区域）
