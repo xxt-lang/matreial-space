@@ -12,9 +12,8 @@
  * 缩放不影响内部布局，仅整体等比缩放显示，顶部居中显示当前比例。
  *
  * 画布交互：通过 useVueFlow() 读写节点数据；左右两侧带 vue-flow 连线点；
- * 生成 / 编辑 / 上传动作 emit 给宿主（work.vue），由宿主决定是否调用 api/ 接口层。
- */
-import { computed, ref, watch } from 'vue'
+ * 生成 / 中断 / 编辑 / 上传动作 emit 给宿主（work.vue），由宿主决定是否调用 api/ 接口层。
+ */import { computed, ref, watch } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import ImageStage from './component/ImageStage.vue'
 import NodeToolbar from './component/NodeToolbar.vue'
@@ -181,6 +180,8 @@ function onRemoveUpstream(sourceId) {
  *   nodes   —— 上游节点信息
  */
 function onGenerate() {
+  // 生成中不重复提交（此时按钮已切换为「中断」）
+  if (props.data.status === 'generating') return
   const text = prompt.value.trim()
   if (!text) return
   const payload = {
@@ -203,6 +204,11 @@ function onGenerate() {
   }
   console.log(payload)
   emit('generate', payload)
+}
+
+/** 中断生成：把中断信号交给宿主，由宿主 abort 对应节点的请求 */
+function onAbort() {
+  emit('abort', { id: props.id })
 }
 
 /** 本地选图后先直接展示；上传接口就绪后，由宿主替换为远程地址 */
@@ -232,7 +238,12 @@ function onUpload(payload) {
       :class="{ 'is-active': isActive, 'is-editing': isEditing }"
       :style="nodeStyle"
     >
-      <ImageStage :image="data.image" :status="data.status" @upload="onUpload" />
+      <ImageStage
+        :image="data.image"
+        :status="data.status"
+        :error="data.error"
+        @upload="onUpload"
+      />
 
       <!-- 编辑态（双击节点进入）才显示工具栏与输入区 -->
       <template v-if="isEditing">
@@ -258,8 +269,10 @@ function onUpload(payload) {
           :height="savedPromptHeight"
           :mentions="mentionOptions"
           :valid-mention-ids="existingNodeIds"
+          :loading="data.status === 'generating'"
           placeholder="描述画面，例如：赛博朋克风格的猫，可用 @ 引用上游节点"
           @submit="onGenerate"
+          @abort="onAbort"
           @resize="onPromptResize"
         />
       </template>

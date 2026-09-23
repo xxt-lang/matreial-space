@@ -1,17 +1,26 @@
 <script setup>
 /**
  * 图片展示模块（GenImageNode 私有子组件）
- * - 无图：点阵占位 +「上传图片」，status 为 generating 时显示生成中提示
+ * - 无图：点阵占位 +「上传图片」
  * - 有图：等比完整展示，右下角可「更换」
+ * - status = generating：盖一层加载中（无论节点是否处于编辑态都会展示），
+ *   由父节点在接口成功 / 失败后改写 status 才会撤掉
+ * - status = error：展示失败信息（有图时叠在图片下方，无图时显示在占位区）
  *
  * 上传：选择本地图片 → 校验类型/大小 → 读为 dataURL → emit('upload')，由父节点写入 data
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
-defineProps({
+const props = defineProps({
   image: { type: String, default: '' },
+  /** idle 空闲 / generating 生成中 / done 成功 / error 失败 */
   status: { type: String, default: 'idle' },
+  /** 生成失败时的错误信息 */
+  error: { type: String, default: '' },
 })
+
+/** 生成中：加载态优先于其它内容展示 */
+const isGenerating = computed(() => props.status === 'generating')
 
 const emit = defineEmits(['upload'])
 
@@ -69,19 +78,28 @@ function onFileChange(event) {
       draggable="false"
     />
 
-    <div v-else class="image-stage__empty">
+    <div v-else-if="!isGenerating" class="image-stage__empty">
       <div class="image-stage__grid" aria-hidden="true" />
-      <p class="image-stage__hint">
-        {{ status === 'generating' ? '正在生成，请稍候…' : '暂无图片' }}
-      </p>
+      <p class="image-stage__hint">暂无图片</p>
       <button class="image-stage__upload nodrag" type="button" @click="openPicker">
         上传图片
       </button>
       <p v-if="error" class="image-stage__error">{{ error }}</p>
     </div>
 
+    <!-- 生成中：盖在图片 / 占位之上，节点折叠时同样可见 -->
+    <div v-if="isGenerating" class="image-stage__loading">
+      <span class="image-stage__spinner" aria-hidden="true" />
+      <p class="image-stage__loading-text">正在生成，请稍候…</p>
+    </div>
+
+    <!-- 生成失败：有图时叠一层提示 -->
+    <p v-if="!isGenerating && error && image" class="image-stage__error image-stage__error--float">
+      {{ error }}
+    </p>
+
     <button
-      v-if="image"
+      v-if="image && !isGenerating"
       class="image-stage__change nodrag"
       type="button"
       title="更换图片"
@@ -167,6 +185,58 @@ function onFileChange(event) {
   margin: 0;
   font-size: 11px;
   color: #ff7a7a;
+}
+
+/* ---------------- 生成中 ---------------- */
+
+/* 盖住整个图片区：折叠态也可见，只有父级把 status 改成成功 / 失败才撤掉 */
+.image-stage__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(9, 10, 14, 0.72);
+}
+
+.image-stage__spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(240, 166, 61, 0.25);
+  border-top-color: var(--accent, #f0a63d);
+  border-radius: 50%;
+  animation: image-stage-spin 0.8s linear infinite;
+}
+
+@keyframes image-stage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.image-stage__loading-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted, #767f92);
+}
+
+/* 有图但生成失败：贴左下角（右下角留给「更换」按钮） */
+.image-stage__error--float {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  right: 74px;
+  overflow: hidden;
+  padding: 4px 8px;
+  color: #ff9d9d;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: rgba(13, 17, 23, 0.82);
+  border: 1px solid rgba(229, 72, 77, 0.4);
+  border-radius: var(--r-sm, 6px);
 }
 
 /* 「更换」按钮放右下角，把右上角让给节点的缩放比例提示 */

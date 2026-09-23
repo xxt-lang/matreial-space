@@ -3,11 +3,15 @@
  * 提示词输入框（工作区公共组件）
  *
  * 基于 TipTap（ProseMirror）的轻量富文本输入：
+ * - 点击组件任意空白处即可把光标落进输入区（按点击位置定位，点不到内容则落到末尾）
  * - 输入 @ 弹出候选列表（键盘 ↑/↓ 选择、Enter/Tab 确认、Esc 关闭，也可鼠标点击）
  * - 选中后插入行内 mention 节点：`@#序号` 显示为蓝色标签，可整体选中 / 删除
  * - 文本中所有 @ 字符都会染蓝（见 AtKeyword 装饰插件）
  * - 引用节点保存来源节点 id（渲染为 data-id 隐藏信息），
  *   配合 validMentionIds 可校验引用是否失效（如来源节点已被删除）：失效的引用会置灰
+ * - 提交按钮内置「防抖 + 防重复提交」：submitDebounce 间隔内的重复点击直接忽略；
+ *   loading 为 true 时按钮切换成「中断」态并发出 abort 信号，
+ *   真正的请求发起 / 中断由使用方处理（见 README「开发约定」）
  * - 与业务无关：文案、候选、初始高度通过 props 传入；对外是纯文本，
  *   引用标记序列化为 `@#<序号>`，语义（对应哪个上游节点）由使用方决定
  *
@@ -40,6 +44,15 @@ const props = defineProps({
   /** 提交按钮文案 */
   submitText: { type: String, default: '生成' },
   /**
+   * 是否处于提交中（生成中）：按钮切换为「中断」态，点击发出 abort 信号
+   * 由使用方用数据状态驱动（如 `data.status === 'generating'`），不要用组件内部布尔
+   */
+  loading: { type: Boolean, default: false },
+  /** 提交中时的按钮文案 */
+  abortText: { type: String, default: '中断' },
+  /** 提交防抖间隔（ms）：间隔内的重复点击视为重复提交，直接忽略 */
+  submitDebounce: { type: Number, default: 400 },
+  /**
    * @ 候选列表：[{ id, index?, label?, image? }]
    * index 用于生成引用标记 @#index，label / image 用于展示
    */
@@ -54,7 +67,7 @@ const props = defineProps({
   validMentionIds: { type: Array, default: null },
 })
 
-const emit = defineEmits(['update:modelValue', 'submit', 'resize'])
+const emit = defineEmits(['update:modelValue', 'submit', 'abort', 'resize'])
 
 const canSubmit = computed(() => props.modelValue.trim().length > 0)
 
@@ -381,7 +394,10 @@ const editor = useEditor({
       // Enter（无修饰键）提交，Shift + Enter 换行
       const noModifier = !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
       if (event.key === 'Enter' && noModifier) {
-        if (canSubmit.value) emit('submit')
+        // 提交中不提交，交回编辑器（换行）；中断只能通过按钮触发
+        if (props.loading) return false
+        // 与点击按钮走同一条路径：防抖 + 动效反馈保持一致
+        submit()
         return true
       }
       return false
@@ -397,13 +413,95 @@ const editor = useEditor({
   onBlur: () => closeMenu(),
 })
 
-/** 收集编辑器里的引用节点（带 id），供「引用内容展示」与失效校验使用 */
+/** 收集编辑器里的引用节点（带 id），供失效校验使用 */
 function syncDocMentions(editorInstance) {
   const mentions = []
   editorInstance.state.doc.descendants((node) => {
     if (node.type.name === 'mention') mentions.push({ ...node.attrs })
   })
   docMentions.value = mentions
+}
+
+/* ---------------- 点击落光标 ---------------- */
+
+/**
+ * 点击组件任意空白处时把光标落进输入区（含 box 外的内边距区域）
+ * - 按钮、候选列表、编辑器正文交给各自处理
+ * - 用 click 而不是 mousedown：滚动条 / 原生 resize 手柄的交互不派发 click，
+ *   因此不会和拖拽滚动、拖拽调高打架
+ * - 按点击位置定位光标；点不到正文（如文字下方空白）就落到末尾
+ */
+function onPanelClick(event) {
+  if (event.target?.closest?.('button, a, input, select, textarea, .prompt-input__options')) return
+
+  const instance = editor.value
+  if (!instance || instance.isDestroyed) return
+  // 点在编辑器正文上：浏览器本身就会把光标落在正确位置
+  if (instance.view.dom.contains(event.target)) return
+
+  const hit = instance.view.posAtCoords({ left: event.clientX, top: event.clientY })
+  instance.commands.focus(hit?.pos ?? 'end')
+}
+
+/* ---------------- 提交按钮点击动效 ---------------- */
+
+const submitRef = ref(null)
+
+/** 按下动效的光色：淡蓝色 */
+const PRESS_GLOW = '125, 200, 255'
+
+/**
+ * 按下反馈：先轻微回弹，同时向外泛出一圈淡蓝色光
+ * 用 Web Animations API 而不是切 class，连续点击可以自然重放、不用等动画结束
+ */
+function playPressFeedback() {
+  const el = submitRef.value
+  if (!el?.animate) return
+  // 尊重系统「减少动态效果」设置
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+
+  el.animate(
+    [
+      { transform: 'scale(0.94)', boxShadow: `0 0 0 0 rgba(${PRESS_GLOW}, 0.60)` },
+      { transform: 'scale(1.06)', boxShadow: `0 0 14px 5px rgba(${PRESS_GLOW}, 0.55)` },
+      { transform: 'scale(1)', boxShadow: `0 0 0 0 rgba(${PRESS_GLOW}, 0)` },
+    ],
+    { duration: 380, easing: 'ease-out' },
+  )
+}
+
+/* ---------------- 提交 / 中断（防抖 + 防重复提交） ---------------- */
+
+/** 上次提交时间戳：用于防抖，间隔内的重复点击直接忽略 */
+let lastSubmitAt = 0
+
+/**
+ * 提交（按钮点击与 Enter 共用）
+ * 防抖 + 提交中不重复提交：真正的请求由使用方发起，这里只负责拦住重复触发
+ */
+function submit() {
+  if (props.loading || !canSubmit.value) return
+  const now = Date.now()
+  if (now - lastSubmitAt < props.submitDebounce) return
+  lastSubmitAt = now
+  playPressFeedback()
+  emit('submit')
+}
+
+/** 中断：提交中按钮为「中断」态，点击把中断信号抛给使用方 */
+function abort() {
+  if (!props.loading) return
+  playPressFeedback()
+  emit('abort')
+}
+
+/** 提交按钮点击：按当前状态走提交或中断 */
+function onSubmitClick() {
+  if (props.loading) {
+    abort()
+    return
+  }
+  submit()
 }
 
 // 外部（父级）改写文本时同步进编辑器；内容一致则跳过，避免打断输入
@@ -470,8 +568,8 @@ onBeforeUnmount(() => {
   <!-- nokey：编辑区内的 Delete / Backspace 交给文本处理，vue-flow 不再据此删除节点
        （vue-flow 只认 input/textarea/contenteditable 元素与 .nokey，contenteditable 内部
         的按键目标常常是其中的 <p> 等元素，识别不到） -->
-  <div ref="panelRef" class="prompt-input nodrag nokey">
-    <!-- 文本域、引用内容、提交按钮共用一个 box：背景、边框、圆角由 box 统一提供 -->
+  <div ref="panelRef" class="prompt-input nodrag nokey" @click="onPanelClick">
+    <!-- 文本域与提交按钮共用一个 box：背景、边框、圆角由 box 统一提供 -->
     <div class="prompt-input__box">
       <!-- @ 候选列表：向上弹出，避免超出节点被裁切 -->
       <ul v-if="menu.open && menu.items.length" class="prompt-input__options nowheel">
@@ -511,12 +609,14 @@ onBeforeUnmount(() => {
       </p>
 
       <button
+        ref="submitRef"
         class="prompt-input__submit"
+        :class="{ 'is-aborting': loading }"
         type="button"
-        :disabled="!canSubmit"
-        @click="emit('submit')"
+        :disabled="!loading && !canSubmit"
+        @click="onSubmitClick"
       >
-        {{ submitText }}
+        {{ loading ? abortText : submitText }}
       </button>
     </div>
   </div>
@@ -682,24 +782,43 @@ onBeforeUnmount(() => {
 
 /* ---------------- 提交按钮 ---------------- */
 
+/* 紧凑按钮，靠右排列（不占满整行） */
 .prompt-input__submit {
   flex: none;
+  align-self: flex-end;
   box-sizing: border-box;
-  width: 100%;
-  height: 34px;
+  height: 30px;
+  padding: 0 18px;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--accent-ink, #201404);
   background: var(--accent, #f0a63d);
   border: none;
   border-radius: var(--r-sm, 6px);
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.12s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .prompt-input__submit:hover:not(:disabled) {
   opacity: 0.88;
+}
+
+/* 按下的即时反馈（点击瞬间），松开后的回弹光晕由 Web Animations API 播放 */
+.prompt-input__submit:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* 提交中：按钮切换为「中断」态（描边 + 警示色，点击发出中断信号） */
+.prompt-input__submit.is-aborting {
+  color: #ff9d9d;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(229, 72, 77, 0.5);
+}
+
+.prompt-input__submit.is-aborting:hover {
+  color: #ffb4b4;
+  box-shadow: inset 0 0 0 1px rgba(229, 72, 77, 0.8);
 }
 
 .prompt-input__submit:disabled {

@@ -9,8 +9,10 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { MarkerType, VueFlow, useVueFlow } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
+import ResizableDialog from '../../components/ResizableDialog.vue'
 import ContextMenu from './assistComponent/ContextMenu.vue'
 import GenImageNode from './nodesComponent/GenImageNode/GenImageNode.vue'
+import { createGeneration } from './api/gen.js'
 import { DEFAULT_SCALE, SCALE_STEP, clampScale } from './nodesComponent/GenImageNode/component/nodeScale.js'
 import { VUE_FLOW_SHORTCUT_PROPS, isAltPressed, preventBrowserZoom } from './shortcuts/index.js'
 
@@ -73,7 +75,9 @@ const NODE_DEFAULT_DATA = {
     mode: 'hd',
     size: 64,
     image: '',
+    // status：idle 空闲 / generating 生成中 / done 成功 / error 失败
     status: 'idle',
+    error: '',
     scale: DEFAULT_SCALE,
     promptInputHeight: 0,
   },
@@ -174,16 +178,52 @@ function onConnect(connection) {
   batchSourceIds = []
 }
 
-// 节点「编辑」回调：待接入编辑面板
-function onNodeEdit({ id }) {
-  // TODO: 依据 id 打开该节点的编辑面板
+/** 编辑弹窗状态：visible 控制显隐，id / data 为当前编辑的节点（data 是响应式引用，内容会跟着节点更新） */
+const editDialog = ref({ visible: false, id: '', data: null })
+
+// 节点「编辑」回调：打开编辑弹窗（面板内容待接入）
+function onNodeEdit({ id, data }) {
+  editDialog.value = { visible: true, id, data }
 }
 
-// 节点「生成」回调：待接入 api/ 接口层
-// setting：工具栏配置（model / mode / size）；text：提示词文本
-function onNodeGenerate({ id, setting, text }) {
-  // TODO: 调用 api/gen.js 的 createGeneration({ id, setting, text })，
-  //       并按响应更新节点的 data.image / data.status
+/**
+ * 每个节点正在进行的生成任务（nodeId → AbortController）
+ * 既用于「中断」，也用于挡住重复提交（生成中再次提交直接忽略）
+ */
+const genControllers = new Map()
+
+// 节点「生成」回调：调用 api/ 接口层，并按响应更新节点的 data.status / data.image
+// payload.setting：工具栏配置（model / mode / size）；payload.text：提示词文本
+async function onNodeGenerate(payload) {
+  const { id } = payload
+  // 生成中重复提交直接忽略（此时按钮已变为「中断」）
+  if (genControllers.has(id)) return
+
+  const controller = new AbortController()
+  genControllers.set(id, controller)
+  // 进入生成中：图片区的加载态在折叠状态下同样展示
+  updateNodeData(id, { status: 'generating', error: '' })
+
+  try {
+    const { image } = await createGeneration(payload, { signal: controller.signal })
+    // 成功：取消加载中并展示结果
+    updateNodeData(id, { status: 'done', image })
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      // 中断：取消加载中，保留已有图片
+      updateNodeData(id, { status: 'idle' })
+    } else {
+      // 失败：同样取消加载中，并把错误信息交给节点展示
+      updateNodeData(id, { status: 'error', error: error?.message || '生成失败' })
+    }
+  } finally {
+    genControllers.delete(id)
+  }
+}
+
+// 节点「中断生成」回调：中止该节点正在进行的生成任务
+function onNodeAbort({ id }) {
+  genControllers.get(id)?.abort()
 }
 
 // 节点「上传图片」回调：图片已由节点本地以 dataURL 展示
@@ -257,6 +297,7 @@ function preventNativeMenu(e) {
           v-bind="nodeProps"
           @edit="onNodeEdit"
           @generate="onNodeGenerate"
+          @abort="onNodeAbort"
           @upload="onNodeUpload"
         />
       </template>
@@ -270,6 +311,47 @@ function preventNativeMenu(e) {
       @select="onMenuSelect"
       @close="closeMenu"
     />
+
+    <!-- 节点编辑弹窗：内容待接入，先展示节点当前数据 -->
+    <ResizableDialog
+      v-model="editDialog.visible"
+      :title="editDialog.data?.index ? `编辑节点 #${editDialog.data.index}` : '编辑节点'"
+      :width="560"
+      :height="420"
+    >
+      <p class="edit-panel__hint">编辑面板内容待接入，当前节点数据如下：</p>
+
+      <dl class="edit-panel__list">
+        <div class="edit-panel__row">
+          <dt>节点 ID</dt>
+          <dd>{{ editDialog.id }}</dd>
+        </div>
+        <div class="edit-panel__row">
+          <dt>类型</dt>
+          <dd>{{ editDialog.data?.label || '-' }}</dd>
+        </div>
+        <div class="edit-panel__row">
+          <dt>模式</dt>
+          <dd>{{ editDialog.data?.mode === 'perfect' ? '完美像素画' : '高清像素画' }}</dd>
+        </div>
+        <div class="edit-panel__row">
+          <dt>模型</dt>
+          <dd>{{ editDialog.data?.model || '默认模型' }}</dd>
+        </div>
+        <div class="edit-panel__row">
+          <dt>尺寸</dt>
+          <dd>{{ editDialog.data?.size }}×{{ editDialog.data?.size }}</dd>
+        </div>
+      </dl>
+
+      <p class="edit-panel__prompt">{{ editDialog.data?.prompt || '（提示词为空）' }}</p>
+
+      <template #footer>
+        <button class="edit-panel__btn" type="button" @click="editDialog.visible = false">
+          关闭
+        </button>
+      </template>
+    </ResizableDialog>
   </div>
 </template>
 
@@ -309,5 +391,65 @@ function preventNativeMenu(e) {
   background: transparent;
   border: none;
   border-radius: 0;
+}
+
+/* ---------------- 编辑弹窗内容（面板待接入，先展示节点数据） ---------------- */
+
+.edit-panel__hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted, #767f92);
+}
+
+.edit-panel__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.edit-panel__row {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.edit-panel__row dt {
+  flex: none;
+  width: 72px;
+  color: var(--muted, #767f92);
+}
+
+.edit-panel__row dd {
+  min-width: 0;
+  margin: 0;
+  word-break: break-all;
+}
+
+.edit-panel__prompt {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: #0f131a;
+  border: 1px solid var(--border2, #343c4c);
+  border-radius: var(--r-sm, 6px);
+}
+
+.edit-panel__btn {
+  padding: 7px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-ink, #201404);
+  background: var(--accent, #f0a63d);
+  border: none;
+  border-radius: var(--r-sm, 6px);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.edit-panel__btn:hover {
+  opacity: 0.88;
 }
 </style>
