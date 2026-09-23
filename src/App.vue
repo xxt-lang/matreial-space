@@ -1,13 +1,12 @@
 <script setup>
-import { RouterLink, RouterView } from 'vue-router'
+/**
+ * 应用根组件
+ * - 不再放置导航栏，直接全屏渲染当前路由
+ * - 项目主页面即 workSpace/work.vue（画布宿主）
+ */
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
-  <nav style="padding: 8px; border-bottom: 1px solid #eee; display: flex; gap: 12px;">
-    <RouterLink to="/">首页</RouterLink>
-    <RouterLink to="/flow">Flow</RouterLink>
-  </nav>
-  <main style="padding: 16px;">
-    <RouterView />
-  </main>
+  <RouterView />
 </template>

@@ -101,10 +101,11 @@ function preventNativeMenu(e) {
   background-size: 22px 22px;
 }
 
-/* 让 vue-flow 铺满宿主，并露出宿主网格底纹 */
+/* 让 vue-flow 铺满宿主，并露出宿主网格底纹。
+   用绝对定位而非 height:100%，避免父级高度非确定值时百分比高度失效导致画布塌成 0 */
 .work-space :deep(.vue-flow) {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   background: transparent;
 }
 
