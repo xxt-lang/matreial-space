@@ -119,29 +119,55 @@ function onConnectStart() {
   batchSourceIds = [...ordered, ...rest]
 }
 
+/** 连线去重键：同一对「上游 → 下游」只允许存在一条连线 */
+function edgeKey(source, target) {
+  return `${source}->${target}`
+}
+
+/**
+ * 连线校验（拖拽过程中实时调用）
+ * - 不允许自环（起点即终点）
+ * - 不允许重复连线（这条上下游连线已存在）
+ */
+function isValidConnection({ source, target }, { edges: currentEdges }) {
+  if (!source || !target || source === target) return false
+  return !currentEdges.some((edge) => edge.source === source && edge.target === target)
+}
+
 // 节点连线：vue-flow 默认 autoConnect 为 false，这里手动把连接写入 edges
 function onConnect(connection) {
   const { source, target, sourceHandle, targetHandle } = connection
+  if (!source || !target) return
+
   const stamp = Date.now()
-  const batch = [{ ...connection, id: `edge-${source}-${target}-${stamp}` }]
+  const batch = []
+  // 已存在的连线 + 本批已生成的连线，统一用于去重
+  const taken = new Set(edges.value.map((edge) => edgeKey(edge.source, edge.target)))
+
+  /** 追加一条「id → target」的连线：自环或已链接过则跳过 */
+  function pushEdge(id) {
+    if (!id || id === target) return
+    const key = edgeKey(id, target)
+    if (taken.has(key)) return
+    taken.add(key)
+    batch.push({
+      id: `edge-${id}-${target}-${stamp}-${batch.length}`,
+      source: id,
+      target,
+      sourceHandle,
+      targetHandle,
+    })
+  }
+
+  pushEdge(source)
 
   // 多选后从其中一个节点拉线：其余选中节点用相同位置的连接点连到同一目标
   if (batchSourceIds.length > 1 && batchSourceIds.includes(source)) {
-    batchSourceIds
-      // 排除起始节点自身与目标节点（其余选中节点恰好是目标时会产生自环）
-      .filter((id) => id !== source && id !== target)
-      .forEach((id, index) => {
-        batch.push({
-          id: `edge-${id}-${target}-${stamp}-${index}`,
-          source: id,
-          target,
-          sourceHandle,
-          targetHandle,
-        })
-      })
+    // 起点自身由上面处理；这里只跳过「已连到该目标」的选中节点，避免重复连线
+    batchSourceIds.filter((id) => id !== source).forEach(pushEdge)
   }
 
-  edges.value.push(...batch)
+  if (batch.length) edges.value.push(...batch)
   batchSourceIds = []
 }
 
@@ -214,6 +240,7 @@ function preventNativeMenu(e) {
       :max-zoom="2.5"
       :default-viewport="{ zoom: 1 }"
       :default-edge-options="EDGE_OPTIONS"
+      :is-valid-connection="isValidConnection"
       v-bind="VUE_FLOW_SHORTCUT_PROPS"
       @pane-context-menu="openMenu"
       @pane-click="closeMenu"

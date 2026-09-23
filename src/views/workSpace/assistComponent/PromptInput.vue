@@ -7,11 +7,14 @@
  * - 选中后插入行内 mention 节点：`@#序号` 显示为蓝色标签，可整体选中 / 删除
  * - 文本中所有 @ 字符都会染蓝（见 AtKeyword 装饰插件）
  * - box 内展示当前文本已引用的候选项内容（缩略图 + 序号）
+ * - 引用节点保存来源节点 id（渲染为 data-id 隐藏信息），
+ *   配合 validMentionIds 可校验引用是否失效（如来源节点已被删除）：失效的引用会置灰
  * - 与业务无关：文案、候选、初始高度通过 props 传入；对外是纯文本，
  *   引用标记序列化为 `@#<序号>`，语义（对应哪个上游节点）由使用方决定
  *
- * 画布适配：根元素带 `nodrag`、候选列表带 `nowheel`，
- * 放在 vue-flow 节点内使用时不会触发节点拖动 / 画布缩放
+ * 画布适配：根元素带 `nodrag nokey`、候选列表带 `nowheel`，
+ * 放在 vue-flow 节点内使用时不会触发节点拖动 / 画布缩放，
+ * 编辑区里的 Delete / Backspace 也不会被画布当作「删除所选」
  *
  * 高度（offsetHeight，不受父级 transform 影响，始终是未缩放的 CSS 像素）：
  *   panel —— 面板当前高度（使用方可据此同步自身高度）
@@ -44,6 +47,12 @@ const props = defineProps({
   mentions: { type: Array, default: () => [] },
   /** @ 与引用标记的文字颜色 */
   mentionColor: { type: String, default: '#4f9cf9' },
+  /**
+   * 仍然有效的引用 id 列表（如「画布上仍存在的节点 id」）
+   * 引用节点本身保存了 id（渲染为 data-id 隐藏信息），据此校验引用是否失效；
+   * 不传该 prop 则不做校验
+   */
+  validMentionIds: { type: Array, default: null },
 })
 
 const emit = defineEmits(['update:modelValue', 'submit', 'resize'])
@@ -59,6 +68,8 @@ const isEmpty = computed(() => props.modelValue.length === 0)
 
 const panelRef = ref(null)
 const fieldRef = ref(null)
+/** 编辑器中当前插入的引用节点（含 id / index / 快照信息），随编辑器内容同步 */
+const docMentions = ref([])
 let observer = null
 
 /** 默认（空内容）状态下的面板高度：组件样式固定，模块级量一次即可 */
@@ -203,6 +214,46 @@ const AtKeyword = Extension.create({
   },
 })
 
+/* ---------------- 引用存活性校验 ---------------- */
+
+/** 有效引用 id 集合（未传 validMentionIds 时为 null，表示不校验） */
+const validIdSet = computed(() => (props.validMentionIds ? new Set(props.validMentionIds) : null))
+
+/** 引用是否仍然有效：未开启校验时一律视为有效 */
+function isMentionAlive(mention) {
+  return validIdSet.value ? validIdSet.value.has(mention.id) : true
+}
+
+/**
+ * 给「来源节点已不存在」的引用加失效标记
+ * 引用节点把来源节点 id 存在 attrs.id 里（渲染成 data-id 隐藏信息），
+ * 校验只依赖 id，因此不受序号变化影响
+ */
+const MentionValidity = Extension.create({
+  name: 'mentionValidity',
+
+  addProseMirrorPlugins: () => [
+    new Plugin({
+      key: new PluginKey('mentionValidity'),
+      props: {
+        decorations(state) {
+          const decorations = []
+          state.doc.descendants((node, pos) => {
+            if (node.type.name !== 'mention' || isMentionAlive(node.attrs)) return
+            decorations.push(
+              Decoration.node(pos, pos + node.nodeSize, {
+                class: 'prompt-input__mention--invalid',
+                title: '引用的节点已不存在',
+              }),
+            )
+          })
+          return DecorationSet.create(state.doc, decorations)
+        },
+      },
+    }),
+  ],
+})
+
 /* ---------------- @ 候选列表 ---------------- */
 
 /** open：是否展开；items：候选项；index：高亮项；command：确认回调（由 TipTap 注入） */
@@ -218,13 +269,24 @@ function selectMention(item) {
   menu.value.command(item)
 }
 
-/** 文本中已引用的候选项，用于展示「相关内容」 */
+/**
+ * 已引用的、仍然有效的节点，用于展示「相关内容」
+ * 以编辑器里的引用节点为准（它们带着来源节点 id），并按 id 去重
+ */
 const referencedMentions = computed(() => {
-  const indexes = [...props.modelValue.matchAll(/@#(\d+)/g)].map((m) => Number(m[1]))
-  return [...new Set(indexes)]
-    .map((index) => props.mentions.find((item) => Number(item.index) === index))
-    .filter(Boolean)
+  const list = []
+  const seen = new Set()
+  docMentions.value.forEach((mention) => {
+    if (seen.has(mention.id) || !isMentionAlive(mention)) return
+    seen.add(mention.id)
+    // 优先取候选列表里的最新信息，取不到时回退到插入引用时保存的快照
+    list.push(props.mentions.find((item) => item.id === mention.id) ?? mention)
+  })
+  return list
 })
+
+/** 已失效的引用（来源节点已不存在），用于提示 */
+const invalidMentions = computed(() => docMentions.value.filter((mention) => !isMentionAlive(mention)))
 
 /** 候选项标题：`#序号 名称` */
 function mentionTitle(item) {
@@ -300,6 +362,7 @@ const editor = useEditor({
       suggestion,
     }),
     AtKeyword,
+    MentionValidity,
   ],
   editorProps: {
     attributes: {
@@ -320,11 +383,24 @@ const editor = useEditor({
       return false
     },
   },
+  onCreate: ({ editor }) => {
+    syncDocMentions(editor)
+  },
   onUpdate: ({ editor }) => {
     emit('update:modelValue', serialize(editor))
+    syncDocMentions(editor)
   },
   onBlur: () => closeMenu(),
 })
+
+/** 收集编辑器里的引用节点（带 id），供「引用内容展示」与失效校验使用 */
+function syncDocMentions(editorInstance) {
+  const mentions = []
+  editorInstance.state.doc.descendants((node) => {
+    if (node.type.name === 'mention') mentions.push({ ...node.attrs })
+  })
+  docMentions.value = mentions
+}
 
 // 外部（父级）改写文本时同步进编辑器；内容一致则跳过，避免打断输入
 watch(
@@ -333,6 +409,18 @@ watch(
     const instance = editor.value
     if (!instance || serialize(instance) === value) return
     instance.commands.setContent(buildContent(value, props.mentions), false)
+    syncDocMentions(instance)
+  },
+)
+
+// 引用存活性变化时：刷新引用节点快照，并派发一次空事务让失效装饰重新计算
+watch(
+  () => (props.validMentionIds ? props.validMentionIds.join(',') : ''),
+  () => {
+    const instance = editor.value
+    if (!instance || instance.isDestroyed) return
+    instance.view.dispatch(instance.state.tr)
+    syncDocMentions(instance)
   },
 )
 
@@ -375,7 +463,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="panelRef" class="prompt-input nodrag">
+  <!-- nokey：编辑区内的 Delete / Backspace 交给文本处理，vue-flow 不再据此删除节点
+       （vue-flow 只认 input/textarea/contenteditable 元素与 .nokey，contenteditable 内部
+        的按键目标常常是其中的 <p> 等元素，识别不到） -->
+  <div ref="panelRef" class="prompt-input nodrag nokey">
     <!-- 文本域、引用内容、提交按钮共用一个 box：背景、边框、圆角由 box 统一提供 -->
     <div class="prompt-input__box">
       <!-- @ 候选列表：向上弹出，避免超出节点被裁切 -->
@@ -429,6 +520,11 @@ onBeforeUnmount(() => {
           <span v-if="item.index" class="prompt-input__reference-seq">#{{ item.index }}</span>
         </li>
       </ul>
+
+      <!-- 引用的节点已被删除：提示重新选择 -->
+      <p v-if="invalidMentions.length" class="prompt-input__warning">
+        有 {{ invalidMentions.length }} 处引用的节点已不存在，建议重新选择上游节点
+      </p>
 
       <button
         class="prompt-input__submit"
@@ -521,6 +617,18 @@ onBeforeUnmount(() => {
   background: rgba(79, 156, 249, 0.32);
 }
 
+/* 引用的来源节点已被删除：置灰 + 删除线提示失效 */
+.prompt-input__field :deep(.prompt-input__mention--invalid) {
+  color: var(--muted, #767f92);
+  background: rgba(229, 72, 77, 0.14);
+  text-decoration: line-through;
+  cursor: help;
+}
+
+.prompt-input__field :deep(.prompt-input__mention--invalid .prompt-input__at) {
+  color: inherit;
+}
+
 /* ---------------- @ 候选列表 ---------------- */
 
 .prompt-input__options {
@@ -604,6 +712,15 @@ onBeforeUnmount(() => {
   color: var(--accent-ink, #201404);
   background: var(--accent, #f0a63d);
   border-radius: 999px;
+}
+
+/* ---------------- 失效引用提示 ---------------- */
+
+.prompt-input__warning {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #ff7a7a;
 }
 
 /* ---------------- 提交按钮 ---------------- */

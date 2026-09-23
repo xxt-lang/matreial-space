@@ -2,7 +2,7 @@
 /**
  * 图片展示模块（GenImageNode 私有子组件）
  * - 无图：点阵占位 +「上传图片」，status 为 generating 时显示生成中提示
- * - 有图：等比完整展示，右上角可「更换」
+ * - 有图：等比完整展示，右下角可「更换」
  *
  * 上传：选择本地图片 → 校验类型/大小 → 读为 dataURL → emit('upload')，由父节点写入 data
  */
@@ -11,8 +11,6 @@ import { ref } from 'vue'
 defineProps({
   image: { type: String, default: '' },
   status: { type: String, default: 'idle' },
-  /** 节点序号，展示在左上角标识中 */
-  index: { type: Number, default: null },
 })
 
 const emit = defineEmits(['upload'])
@@ -99,8 +97,6 @@ function onFileChange(event) {
       accept="image/*"
       @change="onFileChange"
     />
-
-    <span class="image-stage__tag">{{ index ? `#${index} 生图` : '生图' }}</span>
   </section>
 </template>
 
@@ -201,16 +197,5 @@ function onFileChange(event) {
 
 .image-stage__file {
   display: none;
-}
-
-.image-stage__tag {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: var(--accent-ink, #201404);
-  background: var(--accent, #f0a63d);
-  border-radius: 999px;
 }
 </style>

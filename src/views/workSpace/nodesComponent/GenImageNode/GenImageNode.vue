@@ -5,7 +5,7 @@
  * 设计尺寸 450×500（高度会随提示词文本域高度变化），纵向三段式：
  *   上：图片展示区（支持本地上传 / 更换）
  *   中：工具栏（完美像素画 / 高清像素画 / 模型选择 / 尺寸选择 / 编辑）
- *   下：提示词输入 + 生成按钮（节点被选中时展开）
+ *   下：提示词输入 + 生成按钮（双击节点进入编辑态时展开）
  *
  * 节点整体支持等比缩放（data.scale）：新建节点默认 0.5（设计尺寸的一半），
  * 选中单个节点后按住 Alt 滚动滚轮即可放大 / 缩小（见 work.vue），
@@ -32,19 +32,51 @@ const emit = defineEmits(['edit', 'generate', 'upload'])
 
 const { updateNodeData, getSelectedNodes, getNodes, getEdges, removeEdges } = useVueFlow()
 
-/** 节点被选中（点击）时进入编辑态，展开工具栏与输入区 */
+/** 节点是否被选中（单击）：只做选中高亮 */
 const isActive = computed(() => getSelectedNodes.value.some((n) => n.id === props.id))
+
+/** 是否处于编辑态：双击节点卡片进入（编辑区内部的双击不参与切换） */
+const editing = ref(false)
+
+/** 是否展开工具栏与输入区：选中 + 编辑态同时成立才展开 */
+const isEditing = computed(() => isActive.value && editing.value)
+
+// 取消选中（点画布空白等）时退出编辑态，避免再次单击就被展开
+watch(isActive, (active) => {
+  if (!active) editing.value = false
+})
+
+/**
+ * 双击节点：进入 / 退出编辑态
+ * 编辑区（工具栏、提示词输入等）都带 `nodrag`，内部双击交给内容本身处理
+ * （比如在输入框里双击选中一个词），不切换编辑态
+ */
+function onNodeDoubleClick(event) {
+  if (event.target?.closest?.('.nodrag')) return
+  editing.value = !editing.value
+}
+
+/** 上游节点自身的序号（升序排序用；无序号时排到最后） */
+function upstreamSeq(node) {
+  return node.data?.index ?? Number.MAX_SAFE_INTEGER
+}
 
 /** 通过连线指向当前节点的上游节点 */
 const upstreamNodes = computed(() => {
-  const sourceIds = getEdges.value
-    .filter((e) => e.target === props.id && e.source !== props.id)
-    .map((e) => e.source)
+  const sourceIds = [
+    ...new Set(
+      getEdges.value
+        .filter((e) => e.target === props.id && e.source !== props.id)
+        .map((e) => e.source),
+    ),
+  ]
   if (!sourceIds.length) return []
-  // 按连线顺序（即批量创建顺序）排列，保持与上游节点的选择顺序一致
+  // 按上游节点自身的序号升序排列：列表顺序与序号只由节点本身决定，
+  // 不受连线先后 / 批量连线顺序影响
   return sourceIds
     .map((id) => getNodes.value.find((n) => n.id === id))
     .filter(Boolean)
+    .sort((a, b) => upstreamSeq(a) - upstreamSeq(b))
 })
 
 const prompt = ref(props.data.prompt ?? '')
@@ -93,6 +125,12 @@ const mentionOptions = computed(() =>
     image: node.data?.image ?? '',
   })),
 )
+
+/**
+ * 画布上仍然存在的节点 id
+ * 提示词里的 @ 引用标记了来源节点 id，据此即可判断引用是否失效（如来源节点被删除）
+ */
+const existingNodeIds = computed(() => getNodes.value.map((node) => node.id))
 
 /**
  * 提示词面板尺寸变化（首次挂载 / 拖拽调节文本域高度）
@@ -180,6 +218,7 @@ function onUpload(payload) {
     class="gen-image-node-wrap"
     :class="{ 'is-active': isActive }"
     :style="wrapStyle"
+    @dblclick="onNodeDoubleClick"
   >
     <!-- 左侧输入连线点（target） -->
     <Handle type="target" :position="Position.Left" class="gen-image-node__handle" />
@@ -188,11 +227,15 @@ function onUpload(payload) {
     <span class="gen-image-node__scale">{{ scaleText }}</span>
 
     <!-- 内层节点：始终按设计尺寸布局，整体等比缩放 -->
-    <div class="gen-image-node" :class="{ 'is-active': isActive }" :style="nodeStyle">
-      <ImageStage :image="data.image" :status="data.status" :index="data.index" @upload="onUpload" />
+    <div
+      class="gen-image-node"
+      :class="{ 'is-active': isActive, 'is-editing': isEditing }"
+      :style="nodeStyle"
+    >
+      <ImageStage :image="data.image" :status="data.status" @upload="onUpload" />
 
-      <!-- 编辑态（节点被选中）才显示工具栏与输入区 -->
-      <template v-if="isActive">
+      <!-- 编辑态（双击节点进入）才显示工具栏与输入区 -->
+      <template v-if="isEditing">
         <NodeToolbar
           :mode="mode"
           :model="model"
@@ -214,6 +257,7 @@ function onUpload(payload) {
           v-model="prompt"
           :height="savedPromptHeight"
           :mentions="mentionOptions"
+          :valid-mention-ids="existingNodeIds"
           placeholder="描述画面，例如：赛博朋克风格的猫，可用 @ 引用上游节点"
           @submit="onGenerate"
           @resize="onPromptResize"
@@ -289,7 +333,8 @@ function onUpload(payload) {
   border-top-right-radius: 11px;
 }
 
-.gen-image-node:not(.is-active) > .image-stage {
+/* 非编辑态时图片区是最后一个子元素，需要自己补偿下方圆角（编辑态下由输入区补偿） */
+.gen-image-node:not(.is-editing) > .image-stage {
   border-bottom-left-radius: 11px;
   border-bottom-right-radius: 11px;
 }
