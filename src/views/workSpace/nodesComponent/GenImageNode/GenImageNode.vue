@@ -84,6 +84,16 @@ const nodeHeight = computed(() => {
 /** 已保存的文本域高度（重新进入编辑态时按它恢复） */
 const savedPromptHeight = computed(() => props.data.promptInputHeight ?? 0)
 
+/** 提示词 @ 引用候选：当前节点的上游节点 */
+const mentionOptions = computed(() =>
+  upstreamNodes.value.map((node) => ({
+    id: node.id,
+    index: node.data?.index ?? null,
+    label: node.data?.label ?? '',
+    image: node.data?.image ?? '',
+  })),
+)
+
 /**
  * 提示词面板尺寸变化（首次挂载 / 拖拽调节文本域高度）
  * - 刷新节点高度增量
@@ -203,7 +213,8 @@ function onUpload(payload) {
         <PromptInput
           v-model="prompt"
           :height="savedPromptHeight"
-          placeholder="描述画面，例如：赛博朋克风格的猫"
+          :mentions="mentionOptions"
+          placeholder="描述画面，例如：赛博朋克风格的猫，可用 @ 引用上游节点"
           @submit="onGenerate"
           @resize="onPromptResize"
         />
