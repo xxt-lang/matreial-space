@@ -22,11 +22,14 @@ material-space/
 ```bash
 cd server
 
-conda activate <你的虚拟环境>      # 或用 venv：python -m venv .venv && .venv\Scripts\activate
-pip install -r requirements.txt
+conda activate material-space     # 本机已就绪的环境（Python 3.14，依赖已装）
+# 依赖有变动时再执行：pip install -r requirements.txt
+# 没有 conda 的机器：python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
 
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+> 不想激活环境也可以：`conda run -n material-space uvicorn app.main:app --reload --port 8000`
 
 - 健康检查：http://127.0.0.1:8000/api/health
 - 接口文档：http://127.0.0.1:8000/docs

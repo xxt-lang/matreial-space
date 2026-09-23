@@ -1,5 +1,14 @@
-# 运行依赖（Python 3.10+）
+# 运行依赖（Python 3.14）
 fastapi>=0.115
 uvicorn[standard]>=0.34
 pydantic-settings>=2.7
 python-multipart>=0.0.20
+
+# 数据持久化：SQLite（Python 标准库自带 sqlite3，无需额外安装数据库）
+# sqlalchemy + aiosqlite 为异步 ORM / 驱动组合，供节点、生成记录等落库使用
+sqlalchemy>=2.0
+aiosqlite>=0.20
+
+# 模型接入 / 提示词编排
+langchain>=1.4
+langchain-community>=0.4

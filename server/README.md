@@ -2,20 +2,22 @@
 
 ## 环境要求
 
-- Python 3.10+
+- Python 3.14
 - 依赖见 `requirements.txt`
 
 ## 快速开始
 
+本机已就绪：conda 环境 **`material-space`**（Python 3.14）中已装好运行依赖与测试依赖
+（fastapi / uvicorn / pydantic-settings / python-multipart / sqlalchemy / aiosqlite /
+langchain / langchain-community / pytest / httpx），
+日常只需激活后启动即可：
+
 ```bash
 cd server
 
-# 虚拟环境（conda 或 venv 二选一）
-conda activate <你的虚拟环境>
-# python -m venv .venv && .venv\Scripts\activate     # Windows
-# python -m venv .venv && source .venv/bin/activate  # macOS / Linux
-
-pip install -r requirements.txt
+conda activate material-space
+# 依赖有变动时再执行：pip install -r requirements.txt
+# 没有配置 conda 的机器可以用 venv：python -m venv .venv && .venv\Scripts\activate
 
 # 配置（可选，不建也能跑，默认值即可本地联调）
 copy .env.example .env        # Windows
@@ -23,6 +25,12 @@ copy .env.example .env        # Windows
 
 # 启动
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+不想激活环境时，也可以用 `conda run` 直接跑：
+
+```bash
+conda run -n material-space uvicorn app.main:app --reload --port 8000
 ```
 
 - 接口文档（OpenAPI）：http://127.0.0.1:8000/docs
