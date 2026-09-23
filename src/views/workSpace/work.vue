@@ -125,13 +125,16 @@ function edgeKey(source, target) {
 }
 
 /**
- * 连线校验（拖拽过程中实时调用）
- * - 不允许自环（起点即终点）
- * - 不允许重复连线（这条上下游连线已存在）
+ * 连线校验
+ * - 拖拽过程中实时调用：不允许自环、不允许重复连线
+ * - vue-flow 还会在用 createGraphEdges 重算整份连线时调用它校验「已存在」的连线，
+ *   所以必须排除正在校验的这条边自身（按 id），否则每次新增连线都会把旧连线判成重复而丢弃
  */
-function isValidConnection({ source, target }, { edges: currentEdges }) {
+function isValidConnection({ id, source, target }, { edges: currentEdges }) {
   if (!source || !target || source === target) return false
-  return !currentEdges.some((edge) => edge.source === source && edge.target === target)
+  return !currentEdges.some(
+    (edge) => edge.id !== id && edge.source === source && edge.target === target,
+  )
 }
 
 // 节点连线：vue-flow 默认 autoConnect 为 false，这里手动把连接写入 edges

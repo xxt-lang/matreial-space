@@ -6,7 +6,6 @@
  * - 输入 @ 弹出候选列表（键盘 ↑/↓ 选择、Enter/Tab 确认、Esc 关闭，也可鼠标点击）
  * - 选中后插入行内 mention 节点：`@#序号` 显示为蓝色标签，可整体选中 / 删除
  * - 文本中所有 @ 字符都会染蓝（见 AtKeyword 装饰插件）
- * - box 内展示当前文本已引用的候选项内容（缩略图 + 序号）
  * - 引用节点保存来源节点 id（渲染为 data-id 隐藏信息），
  *   配合 validMentionIds 可校验引用是否失效（如来源节点已被删除）：失效的引用会置灰
  * - 与业务无关：文案、候选、初始高度通过 props 传入；对外是纯文本，
@@ -173,6 +172,25 @@ const MentionNode = Mention.extend({
     }
   },
 
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      /**
+       * 光标紧跟在引用节点「之前」时，一次 Delete 删掉整个引用
+       * （Backspace 方向由扩展自带的快捷键处理，见 deleteTriggerWithBackspace 配置）
+       */
+      Delete: () =>
+        this.editor.commands.command(({ tr, state }) => {
+          const { empty, anchor } = state.selection
+          if (!empty) return false
+          const node = state.doc.nodeAt(anchor)
+          if (node?.type.name !== this.name) return false
+          tr.delete(anchor, anchor + node.nodeSize)
+          return true
+        }),
+    }
+  },
+
   renderHTML({ node, HTMLAttributes }) {
     return [
       'span',
@@ -269,22 +287,6 @@ function selectMention(item) {
   menu.value.command(item)
 }
 
-/**
- * 已引用的、仍然有效的节点，用于展示「相关内容」
- * 以编辑器里的引用节点为准（它们带着来源节点 id），并按 id 去重
- */
-const referencedMentions = computed(() => {
-  const list = []
-  const seen = new Set()
-  docMentions.value.forEach((mention) => {
-    if (seen.has(mention.id) || !isMentionAlive(mention)) return
-    seen.add(mention.id)
-    // 优先取候选列表里的最新信息，取不到时回退到插入引用时保存的快照
-    list.push(props.mentions.find((item) => item.id === mention.id) ?? mention)
-  })
-  return list
-})
-
 /** 已失效的引用（来源节点已不存在），用于提示 */
 const invalidMentions = computed(() => docMentions.value.filter((mention) => !isMentionAlive(mention)))
 
@@ -359,6 +361,8 @@ const editor = useEditor({
     History,
     MentionNode.configure({
       HTMLAttributes: { class: 'prompt-input__mention' },
+      // 退格删除引用时不再留下 `@` 触发字符，一次删掉整个 `@#序号`
+      deleteTriggerWithBackspace: true,
       suggestion,
     }),
     AtKeyword,
@@ -500,26 +504,6 @@ onBeforeUnmount(() => {
         <EditorContent :editor="editor" />
         <span v-if="isEmpty" class="prompt-input__placeholder">{{ placeholder }}</span>
       </div>
-
-      <!-- 已引用的上游节点：缩略图 + 序号 -->
-      <ul v-if="referencedMentions.length" class="prompt-input__referenced">
-        <li
-          v-for="item in referencedMentions"
-          :key="item.id"
-          class="prompt-input__reference"
-          :title="mentionTitle(item)"
-        >
-          <img
-            v-if="item.image"
-            class="prompt-input__thumb"
-            :src="item.image"
-            alt=""
-            draggable="false"
-          />
-          <span v-else class="prompt-input__thumb prompt-input__thumb--empty" />
-          <span v-if="item.index" class="prompt-input__reference-seq">#{{ item.index }}</span>
-        </li>
-      </ul>
 
       <!-- 引用的节点已被删除：提示重新选择 -->
       <p v-if="invalidMentions.length" class="prompt-input__warning">
@@ -685,33 +669,6 @@ onBeforeUnmount(() => {
 .prompt-input__thumb--empty {
   background-image: radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 6px 6px;
-}
-
-/* ---------------- 已引用的上游节点 ---------------- */
-
-.prompt-input__referenced {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.prompt-input__reference {
-  position: relative;
-}
-
-.prompt-input__reference-seq {
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  padding: 0 3px;
-  font-size: 9px;
-  line-height: 12px;
-  color: var(--accent-ink, #201404);
-  background: var(--accent, #f0a63d);
-  border-radius: 999px;
 }
 
 /* ---------------- 失效引用提示 ---------------- */
