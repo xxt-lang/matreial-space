@@ -1,4 +1,10 @@
-# Logs
+# 依赖与构建产物
+node_modules
+dist
+dist-ssr
+*.local
+
+# 日志
 logs
 *.log
 npm-debug.log*
@@ -7,15 +13,24 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# Tool caches
+# 后端运行时产物
+server/uploads/
+
+# 工具缓存
 .playwright-cli/
 
-# Editor directories and files
+# 编辑器
 .vscode/*
 !.vscode/extensions.json
 .idea

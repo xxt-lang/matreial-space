@@ -1,0 +1,5 @@
+# 运行依赖（Python 3.10+）
+fastapi>=0.115
+uvicorn[standard]>=0.34
+pydantic-settings>=2.7
+python-multipart>=0.0.20
