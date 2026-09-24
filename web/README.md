@@ -9,18 +9,48 @@
 
 ```
 src/
+├─ api/                            # 跨页面共用的接口层
+│  └─ workspace.js                 # 工作空间接口（首页与画布共用，调 /api/workspaces）
 ├─ components/                     # 全局通用组件
+│  ├─ AppIcon.vue                  # 公共图标：<AppIcon type="workspace" />，按 type 渲染内置 svg
 │  └─ ResizableDialog.vue          # 可拖动 / 可调整大小的弹窗（交互对齐 Element Dialog）
-└─ views/workSpace/                # 画布工作区
-   ├─ work.vue                     # 画布宿主：节点 / 连线的增删改、与 api 层交互
-   ├─ api/                         # 接口层（当前为本地模拟实现，接入后端时替换实现即可）
-   ├─ assistComponent/             # 工作区公共组件
-   │  ├─ ContextMenu.vue           # 画布右键菜单
-   │  ├─ PromptInput.vue           # 提示词富文本输入（TipTap + @ 引用）
-   │  └─ SelectMenu.vue            # 下拉选择（工具栏与输入区共用）
-   ├─ nodesComponent/GenImageNode/ # 生图节点及其私有子组件
-   └─ shortcuts/                   # 画布快捷键定义（键位只在这里维护）
+└─ views/
+   ├─ home/                        # 首页：左侧导航 + 子页面（不带画布）
+   │  ├─ HomeLayout.vue            # 布局：左侧纯图标导航（固定 + 垂直居中）+ 右侧 router-view
+   │  ├─ WorkspaceManage.vue       # 工作空间管理（默认页）：列表 / 新建 / 删除二次确认 / 双击进画布
+   │  ├─ LLMConfig.vue             # LLM 配置（占位页）
+   │  └─ SkillConfig.vue           # Skill 配置（占位页）
+   ├─ workSpace/                   # 画布工作区（独立全屏页）
+   │  ├─ work.vue                  # 画布宿主：节点 / 连线的增删改、顶部工作空间名称胶囊
+   │  ├─ api/                      # 接口层（当前为本地模拟实现，接入后端时替换实现即可）
+   │  ├─ assistComponent/          # 工作区公共组件
+   │  │  ├─ ContextMenu.vue        # 画布右键菜单
+   │  │  ├─ PromptInput.vue        # 提示词富文本输入（TipTap + @ 引用）
+   │  │  └─ SelectMenu.vue         # 下拉选择（工具栏与输入区共用）
+   │  ├─ nodesComponent/GenImageNode/ # 生图节点及其私有子组件
+   │  └─ shortcuts/                # 画布快捷键定义（键位只在这里维护）
+   └─ FlowDemo.vue                 # Vue Flow 示例页（脚手架保留）
 ```
+
+## 路由
+
+| 路径 | 名称 | 页面 | 说明 |
+| --- | --- | --- | --- |
+| `/` | —— | `home/HomeLayout.vue` | 重定向到 `/workspaces` |
+| `/workspaces` | `workspace-manage` | `home/WorkspaceManage.vue` | 首页默认页 |
+| `/llm` | `llm-config` | `home/LLMConfig.vue` | 占位 |
+| `/skill` | `skill-config` | `home/SkillConfig.vue` | 占位 |
+| `/workspace/:workspaceId?` | `canvas` | `workSpace/work.vue` | 画布，独立全屏页，不带首页导航 |
+| `/flow` | `flow` | `FlowDemo.vue` | 示例页 |
+
+从工作空间卡片**双击**会 `router.push({ name: 'canvas', params: { workspaceId } })`；
+画布顶部中间的胶囊拿这个 id 调 `GET /api/workspaces/{id}` 展示当前工作空间名称：
+
+- 左侧「←」回工作空间列表（`workspace-manage`）；
+- 点「隐藏」向上收成画布顶部的一个小角（`translate + scaleX`，只露约 10px），
+  鼠标悬浮这个小角会临时展开，点「显示」则保持展开。
+
+节点/连线数据仍是内存态，按空间加载 / 保存画布是下一步的接入点。
 
 ## 联调后端
 
@@ -36,6 +66,13 @@ src/
 
 接口层在 `src/views/workSpace/api/`：现在是本地模拟实现（`setTimeout` 模拟异步返回），
 接后端时只替换实现、保持入参与返回结构不变即可。
+
+`src/api/workspace.js` 已经接了真实后端（`fetch('/api/workspaces')`）：
+统一请求封装，204 返回 `null`，非 2xx 抛出带 `code` 的 `Error`（`message` 直接用后端的文案），
+`{ signal }` 透传到 `fetch`。
+
+接口层放哪：**跨页面共用**的放 `src/api/`；只服务单个页面的放该页面自己的 `api/` 目录
+（如 `views/workSpace/api/`）。
 
 ## 开发约定
 
@@ -101,6 +138,11 @@ async function onNodeGenerate(payload) {
   contenteditable 内部按键尤其需要）。
 - **节点级 UI 状态写进 `node.data`**（如 `status` / `scale` / `promptInputHeight`），
   便于持久化与跨组件读取；只有纯展示的临时状态才放组件内部。
+- **图标统一走 `components/AppIcon.vue`**：`<AppIcon type="workspace" :size="18" />`，
+  不要在页面里散落内联 `<svg>`；新增图标 = 往该组件的 `ICONS` 表里加一条 path 数据
+  （统一 24×24 坐标系、只描边不填充，颜色跟随 `currentColor`）。
+- **只放图标的按钮必须补 `title` + `aria-label`**（首页左侧导航就是这么做的），
+  不要让图标成为唯一的语义来源——鼠标悬浮要有提示，读屏也要能念出用途。
 
 ## 常用命令
 

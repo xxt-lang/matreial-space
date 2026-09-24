@@ -40,7 +40,7 @@
 
 | 调用方 | 允许调用 | 禁止调用 |
 | --- | --- | --- |
-| Controller | Service、Schemas | Database、Pipeline、Utils（如需转换请下沉到 Service） |
+| Controller | Service、Schemas、`get_session`（仅注入） | Pipeline、Utils（如需转换请下沉到 Service）；不得执行任何查询 / SQL |
 | Service | Pipeline、Database、Utils、Config | Controller |
 | Pipeline | Utils、Config、模型 SDK | Database、Service、Controller |
 | Database | Utils、Config | Pipeline、Service、Controller |
@@ -103,13 +103,17 @@ server/
 3. 调用 Service，把结果转成响应模型
 4. 把领域异常映射为 HTTP 状态码
 
+**关于数据库会话**：允许 `session: AsyncSession = Depends(get_session)` 这种依赖注入，
+但**只作为参数透传给 Service**，不得在路由里执行任何查询 / 事务操作，
+也不得让 ORM 对象出现在路由的入参和出参里（出入参一律用 Schemas）。
+`app.database.base` 的 `get_session` 是 controller 唯一可以从 database 层 import 的东西。
+
 **禁止：**
 
 - 写业务分支（`if mode == "hd": ...` 这类判断放 Service / Pipeline）
-- 直接操作数据库、Session、ORM 对象
+- 在路由里执行查询 / SQL、自己开事务、把 ORM 对象返回给前端
 - 直接调用模型或 Pipeline
 - 读写文件、做图像转换
-- 出现 SQL 字符串
 
 **写法约定：**
 
@@ -398,6 +402,6 @@ tests/
 | `services/generator.py` 的编排 | Service | `generate_image(payload, request)` → 改收 `CancelToken`，去掉对 `Request` 的依赖 |
 | `services/generator.py::_mock_image` | Utils | SVG/dataURL 生成是纯转换，应下沉 `utils/image.py` |
 | 真实推理调用（未来） | Pipeline | 新增 `pipeline/image_gen.py`，模型单例在 `lifespan` 加载 |
-| `GenerationCancelled` | `app/exceptions.py` | 继承 `AppError`，由处理器映射为 499 |
+| `app/exceptions.py` | 已落地 | `AppError` / `NotFoundError` + 统一处理器（`main.py` 注册）；`services/generator.py` 的 `GenerationCancelled` 待改为继承 `AppError` |
 | 上传落盘逻辑 | Service + Utils | 校验/路径处理进 `utils/files.py`，落盘编排留在 Service |
 | 数据库（尚未使用） | Database | 建 `database/base.py` 与首个仓储，节点/生成记录优先落库 |

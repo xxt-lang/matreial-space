@@ -55,6 +55,10 @@ npm run dev        # http://localhost:5173
 | 中断生成 | —— | 前端 `AbortController` 断开连接，后端 `is_disconnected()` 检测后取消任务 |
 | 图片上传 | `POST /api/upload` | `multipart/form-data`，字段 `file`，响应 `{ url, name, size, type }` |
 | 健康检查 | `GET /api/health` | `{ "status": "ok" }` |
+| 工作空间列表 | `GET /api/workspaces` | `{ items: [{ id, name, description, created_at, updated_at }], total }` |
+| 创建工作空间 | `POST /api/workspaces` | 请求 `{ name, description }`，成功 201 返回工作空间对象 |
+| 工作空间详情 | `GET /api/workspaces/{id}` | 返回单个工作空间对象，不存在 404 |
+| 删除工作空间 | `DELETE /api/workspaces/{id}` | 成功 204；不存在 404 `{ code, message }`，前端删除前有二次确认弹窗 |
 
 前端侧的开发约定（提交类按钮的防抖、防重复提交、可中断，画布交互类命名等）
 见 [`web/README.md`](./web/README.md) 的「开发约定」章节。

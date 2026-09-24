@@ -5,9 +5,10 @@
 
 from fastapi import APIRouter
 
-from app.api import gen, health, upload
+from app.api import gen, health, upload, workspace
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(gen.router, prefix="/gen", tags=["gen"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
+api_router.include_router(workspace.router, prefix="/workspaces", tags=["workspace"])

@@ -4,14 +4,17 @@
  * - vue-flow 画布全屏铺满
  * - 画布空白处右键 → 弹出上下文菜单（生图 / 生成视频 / 生成地图）
  * - 选择「生图」→ 在落点创建 GenImageNode 节点
+ * - 顶部中间悬浮胶囊：展示当前工作空间名称（取自路由参数 /workspace/:workspaceId），可收起 / 展开
  */
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { MarkerType, VueFlow, useVueFlow } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import ResizableDialog from '../../components/ResizableDialog.vue'
 import ContextMenu from './assistComponent/ContextMenu.vue'
 import GenImageNode from './nodesComponent/GenImageNode/GenImageNode.vue'
+import { fetchWorkspace } from '../../api/workspace'
 import { createGeneration } from './api/gen.js'
 import { DEFAULT_SCALE, SCALE_STEP, clampScale } from './nodesComponent/GenImageNode/component/nodeScale.js'
 import { VUE_FLOW_SHORTCUT_PROPS, isAltPressed, preventBrowserZoom } from './shortcuts/index.js'
@@ -298,6 +301,76 @@ function onNodeUpload({ id, name, type, size }) {
   // TODO: 调用 api/ 上传接口，成功后将节点的 data.image 替换为返回的远程地址
 }
 
+/* ---------------- 当前工作空间名称（画布上方悬浮胶囊） ---------------- */
+
+const route = useRoute()
+const router = useRouter()
+
+/** 当前工作空间 id：从工作空间列表双击进入时由路由参数带上；直接进画布时为空 */
+const workspaceId = computed(() => String(route.params.workspaceId || ''))
+
+const workspaceName = ref('')
+const nameError = ref('')
+
+/** 用户点「隐藏」后的收起状态：向上收成画布顶部的一个小角 */
+const collapsed = ref(false)
+/** 鼠标是否停在胶囊（含收起后的小角）上 */
+const hovered = ref(false)
+/** 实际呈现：收起之后，鼠标悬浮小角会临时展开（纯展示状态，不写 node.data，也不落库） */
+const isCollapsed = computed(() => collapsed.value && !hovered.value)
+
+/** 「隐藏 / 显示」：切换收起状态 */
+function toggleBadge() {
+  collapsed.value = !collapsed.value
+  // 收起时把悬浮状态一并复位：否则鼠标还停在原地，收起后会被判定为「正在悬浮」又立刻展开
+  hovered.value = false
+}
+
+/** 名称左侧的返回按钮：回工作空间列表 */
+function goBackToList() {
+  router.push({ name: 'workspace-manage' })
+}
+
+/** 展示文案：未指定 / 加载中 / 加载失败都有兜底，不让胶囊空着 */
+const badgeText = computed(() => {
+  if (!workspaceId.value) return '未指定工作空间'
+  if (nameError.value) return nameError.value
+  return workspaceName.value || '加载中…'
+})
+
+let nameController = null
+
+async function loadWorkspaceName() {
+  nameController?.abort()
+  workspaceName.value = ''
+  nameError.value = ''
+
+  if (!workspaceId.value) return
+
+  const controller = new AbortController()
+  nameController = controller
+
+  try {
+    const workspace = await fetchWorkspace(workspaceId.value, { signal: controller.signal })
+    workspaceName.value = workspace?.name || '未命名工作空间'
+  } catch (error) {
+    if (error?.name === 'AbortError') return
+    // not_found：该工作空间已被删除；其它情况（后端不可用等）统一兜底
+    nameError.value = error?.code === 'not_found' ? '工作空间不存在' : '名称加载失败'
+  } finally {
+    if (nameController === controller) nameController = null
+  }
+}
+
+// 同一个组件会在不同 /workspace/:id 之间复用，id 变了要重新取名称
+watch(workspaceId, loadWorkspaceName)
+
+onMounted(loadWorkspaceName)
+
+onBeforeUnmount(() => {
+  nameController?.abort()
+})
+
 // 画布容器：屏蔽浏览器「Ctrl / ⌘ + 滚轮」的整页缩放
 const workspaceRef = ref(null)
 let stopWheelGuard = null
@@ -371,6 +444,37 @@ function preventNativeMenu(e) {
         />
       </template>
     </VueFlow>
+
+    <!-- 当前工作空间名称：悬浮在画布上方中部。
+         点「隐藏」向上收成画布顶部的一个小角，鼠标悬浮小角再展开。
+         nokey：vue-flow 的按键快捷键（Delete 等）忽略这里的按键 -->
+    <div
+      class="work-space__badge nokey"
+      :class="{ 'is-collapsed': isCollapsed }"
+      @mouseenter="hovered = true"
+      @mouseleave="hovered = false"
+    >
+      <button
+        class="work-space__badge-icon"
+        type="button"
+        title="返回工作空间列表"
+        aria-label="返回工作空间列表"
+        @click="goBackToList"
+      >
+        ←
+      </button>
+
+      <span class="work-space__badge-text" :title="badgeText">{{ badgeText }}</span>
+
+      <button
+        class="work-space__badge-btn"
+        type="button"
+        :title="collapsed ? '保持展开' : '向上收起'"
+        @click="toggleBadge"
+      >
+        {{ collapsed ? '显示' : '隐藏' }}
+      </button>
+    </div>
 
     <!-- 批量连线预览：Ctrl 多选后拖线时，其余选中节点的连线一并展示（虚线，不接收指针事件） -->
     <svg v-if="previewPaths.length" class="work-space__preview" aria-hidden="true">
@@ -453,6 +557,105 @@ function preventNativeMenu(e) {
 
 .work-space :deep(.vue-flow__pane) {
   background: transparent;
+}
+
+/* 当前工作空间名称：悬浮在画布上方中部，不参与画布布局 */
+.work-space__badge {
+  position: absolute;
+  /* 贴着画布上边缘，不能留空隙：否则收起后的小角会落在展开态盒子之外，
+     悬浮小角时会在「展开 → 光标落在盒子外 → 收起」之间来回抖动 */
+  top: 0;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(70%, 520px);
+  padding: 5px;
+  font-size: 12px;
+  color: var(--fg, #e9edf5);
+  background: rgba(20, 25, 34, 0.82);
+  border: 1px solid var(--border2, #343c4c);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.45));
+  backdrop-filter: blur(6px);
+  /* 展开态也写成完整的函数列表，和收起态的 transform 一一对应，过渡才不会走矩阵插值 */
+  transform: translate(-50%, 0) scaleX(1);
+  transition: transform 0.22s ease;
+}
+
+/*
+  收起：向上移到画布顶边之外，只留底部 10px 露出来当「小角」。
+  关键点：残留的小角必须落在展开态的盒子里（y ∈ [0, 高度]），所以 top 得是 0，
+  否则悬浮小角触发展开后，光标在盒子外会立刻触发 mouseleave 又收起，来回抖动。
+  超出画布的部分由 .work-space 的 overflow: hidden 裁掉；
+  scaleX 让残留的小角变窄（此时内容已经淡出，不影响观感），悬浮它即可展开。
+*/
+.work-space__badge.is-collapsed {
+  transform: translate(-50%, calc(-100% + 10px)) scaleX(0.34);
+}
+
+/* 收起后只看得到胶囊的底边：内容淡出且不可点 */
+.work-space__badge.is-collapsed > * {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.work-space__badge-text {
+  max-width: 320px;
+  padding: 0 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: opacity 0.15s ease;
+}
+
+/* 名称左侧的返回按钮 */
+.work-space__badge-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted, #767f92);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.work-space__badge-icon:hover {
+  color: var(--accent, #f0a63d);
+  border-color: var(--accent, #f0a63d);
+}
+
+.work-space__badge-btn {
+  flex: none;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted, #767f92);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.work-space__badge-btn:hover {
+  color: var(--accent, #f0a63d);
+  border-color: var(--accent, #f0a63d);
 }
 
 /* 批量连线预览：盖在画布上的虚线，只做展示，不接收指针事件 */

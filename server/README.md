@@ -80,6 +80,10 @@ server/
 | GET | `/api/health` | 健康检查 |
 | POST | `/api/gen` | 生成图片（当前返回 SVG 占位图） |
 | POST | `/api/upload` | 图片上传（仅图片类型，默认 5MB 上限） |
+| GET | `/api/workspaces` | 工作空间列表 |
+| POST | `/api/workspaces` | 创建工作空间 |
+| GET | `/api/workspaces/{id}` | 工作空间详情（画布用于展示当前工作空间名称） |
+| DELETE | `/api/workspaces/{id}` | 删除工作空间（前端会先做二次确认） |
 
 ### POST /api/gen
 
@@ -115,6 +119,40 @@ server/
 ```
 
 文件落在 `uploads/`，由 `/uploads` 静态托管；接入对象存储后改为返回外链。
+
+### 工作空间（`/api/workspaces`）
+
+数据落在 SQLite（`data/app.db`，启动时自动建表），对应前端页面 `web/src/views/home/WorkspaceManage.vue`。
+
+| 方法 | 路径 | 请求 | 响应 |
+| --- | --- | --- | --- |
+| GET | `/api/workspaces` | —— | `{ items: [工作空间], total }`（按创建时间倒序） |
+| POST | `/api/workspaces` | `{ name, description? }` | 201 + 工作空间对象 |
+| GET | `/api/workspaces/{id}` | —— | 工作空间对象；不存在返回 404 |
+| DELETE | `/api/workspaces/{id}` | —— | 204 无内容；不存在返回 404 |
+
+工作空间对象：
+
+```json
+{
+  "id": "ef84f82dc69a413dabf7c7e4963c51ea",
+  "name": "角色设定",
+  "description": "第一位主角的参考图",
+  "created_at": "2026-09-24T06:40:51.643856+00:00",
+  "updated_at": "2026-09-24T06:40:51.643859+00:00"
+}
+```
+
+- `name` 必填，1–64 字符（首尾空白会被去掉，全空白按 422 处理）；`description` 最长 255。
+- 时间统一按 UTC 返回（带 `+00:00`），前端 `new Date()` 后转本地时间展示。
+- 业务异常统一返回 `{ code, message }`，例如 404：
+
+  ```json
+  { "code": "not_found", "message": "工作空间不存在：not-exist" }
+  ```
+
+> SQLite 表结构由启动时的 `create_all` 建（见 `app/database/base.py`）；
+> 表结构稳定后改用 Alembic 迁移，届时删掉自动建表。
 
 ## 测试
 

@@ -14,15 +14,21 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.config import get_settings
+from app.database.base import dispose_db, init_db
+from app.exceptions import AppError, app_error_handler
 
 logger = logging.getLogger("material_space")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """启动钩子：目前只做日志，预留模型加载 / 任务队列初始化等位置"""
-    logger.info("上传目录：%s", get_settings().upload_path.resolve())
+    """启动钩子：建表 /（将来的）模型加载、任务队列初始化都放这里，退出时统一释放"""
+    settings = get_settings()
+    logger.info("上传目录：%s", settings.upload_path.resolve())
+    await init_db()
+    logger.info("数据库：%s", settings.database_url)
     yield
+    await dispose_db()
 
 
 def create_app() -> FastAPI:
@@ -40,6 +46,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 领域异常统一转成 { code, message }，路由层就不必写 try/except
+    app.add_exception_handler(AppError, app_error_handler)
 
     app.include_router(api_router, prefix="/api")
 

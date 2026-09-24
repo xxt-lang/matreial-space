@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"
     upload_max_bytes: int = 5 * 1024 * 1024
 
+    # 数据库：默认 SQLite，文件落在 data/ 目录（见 app/database/base.py）
+    data_dir: str = "data"
+    database_url: str = "sqlite+aiosqlite:///./data/app.db"
+
     # 生成
     gen_timeout_seconds: int = 300
     gen_mock_delay_seconds: float = 2.4
@@ -35,6 +39,11 @@ class Settings(BaseSettings):
     def upload_path(self) -> Path:
         """上传目录路径（相对 server/ 运行目录）"""
         return Path(self.upload_dir)
+
+    @property
+    def data_path(self) -> Path:
+        """数据库文件所在目录（相对 server/ 运行目录）"""
+        return Path(self.data_dir)
 
 
 @lru_cache
