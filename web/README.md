@@ -19,7 +19,7 @@ src/
 │  │  ├─ PixelEditor.vue           #   外壳：工具条 / 调色板 / 缩放 / 撤销栈 / 导出
 │  │  ├─ PixelCanvas.vue           #   画布：双层 canvas 渲染 + 指针取像素坐标
 │  │  └─ pixel.js                  #   像素内核：画点 / 直线 / 油漆桶 / 快照等纯函数
-│  └─ ResizableDialog.vue          # 可拖动 / 可调整大小的弹窗（交互对齐 Element Dialog）
+│  └─ ResizableDialog.vue          # 弹窗：可拖动 / 可调整大小，也支持 fullscreen 全屏
 └─ views/
    ├─ home/                        # 首页：左侧导航 + 子页面（不带画布）
    │  ├─ HomeLayout.vue            # 布局：左侧纯图标导航（固定 + 垂直居中）+ 右侧 router-view
@@ -61,17 +61,27 @@ src/
 ## 像素画编辑器
 
 `src/components/PixelEditor/`：独立组件，不掺业务。当前宿主是画布节点的编辑弹窗
-（`work.vue` 里节点工具栏「编辑」→ 弹窗内嵌编辑器 → 「应用到节点」写回 `node.data.image`）。
+（`work.vue` 里节点工具栏「编辑」→ **默认全屏**的弹窗内嵌编辑器 → 「应用到节点」写回 `node.data.image`）。
 
 ```vue
-<PixelEditor :image="data.image" :size="data.size" @apply="onApply" />
+<PixelEditor
+  :image="data.image"
+  :size="data.size"
+  :canvases="canvases"
+  :active-id="activeId"
+  @apply="onApply"
+  @select="onSelect"
+/>
 ```
 
 | prop / emit | 类型 | 说明 |
 | --- | --- | --- |
 | `image` | String | 初始内容（dataURL 或同源 URL），为空表示从空白开始；加载后成为撤销栈起点 |
 | `size` | Number | 像素画边长。编辑器内**只读**——尺寸的唯一来源是节点工具栏，避免两处都能改 |
+| `canvases` | Array | 画布列表 `[{ id, name, image }]`，由宿主传入（节点点击编辑时带过来） |
+| `activeId` | String | 列表里当前正在编辑的项：高亮且不可再点 |
 | `apply` | event | 点「应用到节点」时抛出 1:1 的 PNG dataURL |
+| `select` | event | 在画布列表里选了另一张时抛出它的 id，怎么切换由宿主决定 |
 
 | 文件 | 职责 |
 | --- | --- |
@@ -93,6 +103,10 @@ src/
 - **拖动补点**：指针事件是离散的，相邻两次 move 之间用 Bresenham 连成直线，快速拖动才不会画成虚线。
 - **导入导出都是 1:1**：导入用最近邻重采样，导出 `toDataURL('image/png')` 保持原始分辨率；
   节点图片区用 `image-rendering: pixelated` 放大展示，所以小图不会糊。
+- **画布列表由宿主注入**：编辑器不认识节点。宿主在节点编辑事件里把列表塞进 `editDialog.canvases`
+  （当前 = 画布上所有生图节点），编辑器只负责展示与上报 `select(id)`；
+  宿主收到后切换编辑目标，编辑器按新的 `image` / `size` 重新载入即可，不需要额外接口。
+  面板由工具条上的图层图标开关（默认展开）。
 
 ## 联调后端
 

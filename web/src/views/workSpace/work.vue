@@ -252,9 +252,32 @@ function onConnect(connection) {
 /** 编辑弹窗状态：visible 控制显隐，id / data 为当前编辑的节点（data 是响应式引用，内容会跟着节点更新） */
 const editDialog = ref({ visible: false, id: '', data: null })
 
+/**
+ * 编辑器里的「画布列表」：画布上所有生图节点（含正在编辑的这个）
+ * 宿主在收到节点的编辑事件时一起传过去，编辑器只负责展示与上报选中项
+ */
+function buildCanvasList() {
+  return getNodes.value
+    .filter((node) => node.type === NODE_TYPE.image)
+    .map((node) => ({
+      id: node.id,
+      name: node.data?.index ? `#${node.data.index}` : '未命名',
+      image: node.data?.image || '',
+    }))
+    // numeric 让 #2 排在 #10 前面
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }))
+}
+
 // 节点「编辑」回调：打开像素画编辑弹窗
 function onNodeEdit({ id, data }) {
-  editDialog.value = { visible: true, id, data }
+  editDialog.value = { visible: true, id, data, canvases: buildCanvasList() }
+}
+
+/** 画布列表里选了另一张：把编辑目标切过去，编辑器会按新的 image / size 重新载入 */
+function onCanvasSelect(id) {
+  const node = getNodes.value.find((item) => item.id === id)
+  if (!node) return
+  editDialog.value = { ...editDialog.value, id, data: node.data }
 }
 
 /** 像素画编辑器「应用到节点」：把 PNG dataURL 写回节点，图片区直接展示 */
@@ -497,19 +520,21 @@ function preventNativeMenu(e) {
       @close="closeMenu"
     />
 
-    <!-- 节点编辑弹窗：像素画编辑器。编辑结果通过「应用到节点」写回 data.image，
+    <!-- 节点编辑弹窗：像素画编辑器，默认全屏。编辑结果通过「应用到节点」写回 data.image，
          所以这里没有 footer —— 操作按钮都在编辑器自己的底栏里 -->
     <ResizableDialog
       v-model="editDialog.visible"
       :title="editDialog.data?.index ? `编辑节点 #${editDialog.data.index}` : '编辑节点'"
-      :width="820"
-      :height="660"
+      fullscreen
       :close-on-click-modal="false"
     >
       <PixelEditor
         :image="editDialog.data?.image || ''"
         :size="editDialog.data?.size || 64"
+        :canvases="editDialog.canvases || []"
+        :active-id="editDialog.id"
         @apply="onPixelApply"
+        @select="onCanvasSelect"
       />
     </ResizableDialog>
   </div>

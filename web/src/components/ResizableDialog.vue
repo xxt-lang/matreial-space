@@ -9,6 +9,7 @@
  * - 打开时把焦点移入弹窗，关闭后把焦点还给打开前的元素
  * - 插槽：header（缺省显示 title）、default（内容区，超高内部滚动）、footer（操作区）
  * - 默认 Teleport 到 body，避免被父级 transform / overflow 裁切
+ * - `fullscreen` 铺满视口：此时 width / height / 拖拽 / 缩放把手都自动失效
  *
  * 相对 Element 额外提供「拖拽移动 + 拖拽调整大小」：
  * - 拖拽标题栏移动弹窗（标题栏内的按钮等交互元素不参与拖拽），位置会限制在视口内
@@ -26,6 +27,8 @@ const props = defineProps({
   /** 初始尺寸：数字按 px 处理，字符串原样使用 */
   width: { type: [Number, String], default: 560 },
   height: { type: [Number, String], default: 400 },
+  /** 是否全屏：铺满视口，同时禁用拖拽移动与调整大小（此时 width / height 不再生效） */
+  fullscreen: { type: Boolean, default: false },
   /** 调整大小的下限 */
   minWidth: { type: Number, default: 320 },
   minHeight: { type: Number, default: 180 },
@@ -68,6 +71,9 @@ const position = ref({ left: 0, top: 0 })
 
 /** 打开时按当前尺寸与视口计算位置（居中偏上，与 Element 的 15vh 观感一致） */
 function initBox() {
+  // 全屏模式尺寸和位置都由 dialogStyle 直接给满，不用算
+  if (props.fullscreen) return
+
   const width = toPx(props.width, 560)
   const height = toPx(props.height, 400)
   size.value = { width, height }
@@ -78,19 +84,23 @@ function initBox() {
 }
 
 watch(
-  () => [props.width, props.height],
+  () => [props.width, props.height, props.fullscreen],
   () => {
     if (!props.modelValue) return
     initBox()
   },
 )
 
-const dialogStyle = computed(() => ({
-  width: `${size.value.width}px`,
-  height: `${size.value.height}px`,
-  left: `${position.value.left}px`,
-  top: `${position.value.top}px`,
-}))
+const dialogStyle = computed(() => {
+  if (props.fullscreen) return { left: 0, top: 0, width: '100%', height: '100%' }
+
+  return {
+    width: `${size.value.width}px`,
+    height: `${size.value.height}px`,
+    left: `${position.value.left}px`,
+    top: `${position.value.top}px`,
+  }
+})
 
 /* ---------------- 显隐 ---------------- */
 
@@ -213,7 +223,7 @@ function clampPosition(next) {
 
 /** 标题栏按下：开始拖拽移动弹窗 */
 function startDrag(event) {
-  if (!props.draggable) return
+  if (!props.draggable || props.fullscreen) return
   // 标题栏里的交互元素（关闭按钮、插槽里的按钮等）不参与拖拽
   if (event.target?.closest?.('button, a, input, select, textarea, [contenteditable="true"]')) return
   event.preventDefault()
@@ -263,7 +273,7 @@ function clampSize(value, min, max) {
  * @param {'e' | 's' | 'se'} direction 拉伸方向：e 右边缘、s 下边缘、se 右下角
  */
 function startResize(event, direction) {
-  if (!props.resizable) return
+  if (!props.resizable || props.fullscreen) return
   event.preventDefault()
   event.stopPropagation()
 
@@ -329,6 +339,7 @@ function onOverlayClick(event) {
       <section
         ref="dialogRef"
         class="rd-dialog"
+        :class="{ 'is-fullscreen': fullscreen }"
         role="dialog"
         aria-modal="true"
         :aria-label="title"
@@ -337,7 +348,7 @@ function onOverlayClick(event) {
       >
         <header
           class="rd-dialog__header"
-          :class="{ 'is-draggable': draggable }"
+          :class="{ 'is-draggable': draggable && !fullscreen }"
           @pointerdown="startDrag"
         >
           <slot name="header">
@@ -363,7 +374,7 @@ function onOverlayClick(event) {
           <slot name="footer" />
         </footer>
 
-        <template v-if="resizable">
+        <template v-if="resizable && !fullscreen">
           <span class="rd-dialog__resizer rd-dialog__resizer--e" @pointerdown="startResize($event, 'e')" />
           <span class="rd-dialog__resizer rd-dialog__resizer--s" @pointerdown="startResize($event, 's')" />
           <span class="rd-dialog__resizer rd-dialog__resizer--se" @pointerdown="startResize($event, 'se')" />
@@ -384,6 +395,13 @@ function onOverlayClick(event) {
   position: absolute;
   inset: 0;
   background: rgba(6, 8, 12, 0.58);
+}
+
+/* 全屏：铺满视口，圆角 / 边框 / 投影都没有意义了 */
+.rd-dialog.is-fullscreen {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .rd-dialog {

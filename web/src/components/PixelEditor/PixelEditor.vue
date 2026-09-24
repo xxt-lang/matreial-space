@@ -2,13 +2,23 @@
 /**
  * 像素画编辑器（独立组件，不掺任何业务）
  *
- * 能力：画笔 / 橡皮 / 取色 / 油漆桶 + 调色板 + 网格 + 缩放 + 撤销重做 + 导出 PNG
+ * 能力：画笔 / 橡皮 / 取色 / 油漆桶 + 调色板 + 画布列表 + 网格 + 缩放 + 撤销重做 + 导出 PNG
  *
  * 用法：
- *   <PixelEditor :image="data.image" :size="data.size" @apply="onApply" />
+ *   <PixelEditor
+ *     :image="data.image"
+ *     :size="data.size"
+ *     :canvases="canvases"
+ *     :active-id="activeId"
+ *     @apply="onApply"
+ *     @select="onSelect"
+ *   />
  * - image：可选。传入时作为初始内容加载（dataURL 或同源 URL），加载后成为撤销栈的起点
  * - size：像素画边长。编辑器内只读 —— 尺寸的唯一来源是节点工具栏，避免两处都能改
+ * - canvases：画布列表 `[{ id, name, image }]`，由宿主传入（节点点击编辑时带过来）
+ * - activeId：列表里当前正在编辑的那一项，高亮且不可再点
  * - apply：点「应用到节点」时抛出 1:1 的 PNG dataURL
+ * - select：在画布列表里选了另一张时抛出它的 id，具体怎么切换交给宿主决定
  *
  * 状态全在这里：像素缓冲、撤销栈、当前工具与颜色。
  * 画布组件（PixelCanvas）只负责渲染和上报像素坐标，不认识工具语义。
@@ -36,9 +46,13 @@ const props = defineProps({
   image: { type: String, default: '' },
   /** 像素画边长 */
   size: { type: Number, default: 64 },
+  /** 画布列表：[{ id, name, image }]，由宿主传入 */
+  canvases: { type: Array, default: () => [] },
+  /** 列表里当前正在编辑的项：高亮且不可点 */
+  activeId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['apply'])
+const emit = defineEmits(['apply', 'select'])
 
 /* ---------------- 工具与颜色 ---------------- */
 
@@ -60,6 +74,8 @@ const PALETTE = [
 const tool = ref('pencil')
 const color = ref('#fff1e8')
 const gridVisible = ref(true)
+/** 画布列表面板是否展开 */
+const listVisible = ref(true)
 
 /** 当前颜色的 RGBA；输入框里出现非法值时退回白色，保证画笔始终能用 */
 const colorRgba = computed(() => hexToRgba(color.value) ?? [255, 255, 255, 255])
@@ -332,6 +348,17 @@ watch(() => props.image, loadImage)
       <div class="pixel-editor__group">
         <button
           class="pixel-editor__tool"
+          :class="{ 'is-active': listVisible }"
+          type="button"
+          title="显示 / 隐藏画布列表"
+          aria-label="显示 / 隐藏画布列表"
+          @click="listVisible = !listVisible"
+        >
+          <AppIcon type="layers" :size="16" />
+        </button>
+
+        <button
+          class="pixel-editor__tool"
           :class="{ 'is-active': gridVisible }"
           type="button"
           title="显示 / 隐藏网格"
@@ -388,8 +415,34 @@ watch(() => props.image, loadImage)
 
     <p v-if="loadError" class="pixel-editor__error">{{ loadError }}</p>
 
-    <!-- 画布 + 调色板 -->
+    <!-- 画布列表 + 画布 + 调色板 -->
     <div class="pixel-editor__main">
+      <!-- 画布列表：换一张像素画来编辑。列表由宿主传入，选中后交给宿主的 select 处理 -->
+      <aside v-if="listVisible" class="pixel-editor__canvases">
+        <p class="pixel-editor__panel-title">画布列表</p>
+
+        <p v-if="!canvases.length" class="pixel-editor__empty">暂无可选画布</p>
+
+        <ul v-else class="pixel-editor__canvas-list">
+          <li v-for="item in canvases" :key="item.id">
+            <button
+              class="pixel-editor__canvas-item"
+              :class="{ 'is-active': item.id === activeId }"
+              type="button"
+              :disabled="item.id === activeId"
+              :title="item.id === activeId ? '当前正在编辑' : `编辑 ${item.name}`"
+              @click="emit('select', item.id)"
+            >
+              <span class="pixel-editor__canvas-thumb">
+                <img v-if="item.image" :src="item.image" alt="" draggable="false" />
+                <AppIcon v-else type="layers" :size="14" />
+              </span>
+              <span class="pixel-editor__canvas-name">{{ item.name }}</span>
+            </button>
+          </li>
+        </ul>
+      </aside>
+
       <div ref="stageRef" class="pixel-editor__stage">
         <PixelCanvas
           :buffer="buffer"
@@ -545,6 +598,104 @@ watch(() => props.image, loadImage)
   margin: 0;
   font-size: 12px;
   color: var(--danger, #e06c9f);
+}
+
+/* ---------------- 画布列表面板 ---------------- */
+
+.pixel-editor__canvases {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  width: 148px;
+  min-height: 0;
+  padding: 10px;
+  overflow: auto;
+  background: #0b0e13;
+  border: 1px solid var(--border2, #343c4c);
+  border-radius: var(--r, 10px);
+}
+
+.pixel-editor__panel-title {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted, #767f92);
+}
+
+.pixel-editor__empty {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted, #767f92);
+}
+
+.pixel-editor__canvas-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pixel-editor__canvas-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg, #e9edf5);
+  background: var(--surface-2, #1b2130);
+  border: 1px solid var(--border2, #343c4c);
+  border-radius: var(--r-sm, 6px);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.pixel-editor__canvas-item:hover:not(:disabled) {
+  color: var(--accent, #f0a63d);
+  border-color: var(--accent, #f0a63d);
+}
+
+/* 当前正在编辑的那张：accent 描边标记 */
+.pixel-editor__canvas-item.is-active {
+  color: var(--accent, #f0a63d);
+  border-color: var(--accent, #f0a63d);
+}
+
+/* disabled 只用来禁掉重复点击，观感保持不变（否则浏览器会把文字变灰） */
+.pixel-editor__canvas-item:disabled {
+  cursor: default;
+}
+
+.pixel-editor__canvas-thumb {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  color: var(--muted, #767f92);
+  background: #171b22;
+  border-radius: 4px;
+}
+
+.pixel-editor__canvas-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.pixel-editor__canvas-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ---------------- 画布区 + 侧栏 ---------------- */
