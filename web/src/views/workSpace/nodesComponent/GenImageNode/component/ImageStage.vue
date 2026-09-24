@@ -137,6 +137,9 @@ function onFileChange(event) {
   height: 100%;
   object-fit: contain;
   user-select: none;
+  /* 最近邻放大：生成/编辑出来的像素画是小图（如 64×64），
+     插值放大就糊了，像素画必须保留硬边 */
+  image-rendering: pixelated;
 }
 
 .image-stage__empty {

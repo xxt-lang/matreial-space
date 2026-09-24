@@ -11,6 +11,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { MarkerType, VueFlow, useVueFlow } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
+import PixelEditor from '../../components/PixelEditor/PixelEditor.vue'
 import ResizableDialog from '../../components/ResizableDialog.vue'
 import ContextMenu from './assistComponent/ContextMenu.vue'
 import GenImageNode from './nodesComponent/GenImageNode/GenImageNode.vue'
@@ -251,9 +252,15 @@ function onConnect(connection) {
 /** 编辑弹窗状态：visible 控制显隐，id / data 为当前编辑的节点（data 是响应式引用，内容会跟着节点更新） */
 const editDialog = ref({ visible: false, id: '', data: null })
 
-// 节点「编辑」回调：打开编辑弹窗（面板内容待接入）
+// 节点「编辑」回调：打开像素画编辑弹窗
 function onNodeEdit({ id, data }) {
   editDialog.value = { visible: true, id, data }
+}
+
+/** 像素画编辑器「应用到节点」：把 PNG dataURL 写回节点，图片区直接展示 */
+function onPixelApply(image) {
+  if (!editDialog.value.id) return
+  updateNodeData(editDialog.value.id, { image })
 }
 
 /**
@@ -490,45 +497,20 @@ function preventNativeMenu(e) {
       @close="closeMenu"
     />
 
-    <!-- 节点编辑弹窗：内容待接入，先展示节点当前数据 -->
+    <!-- 节点编辑弹窗：像素画编辑器。编辑结果通过「应用到节点」写回 data.image，
+         所以这里没有 footer —— 操作按钮都在编辑器自己的底栏里 -->
     <ResizableDialog
       v-model="editDialog.visible"
       :title="editDialog.data?.index ? `编辑节点 #${editDialog.data.index}` : '编辑节点'"
-      :width="560"
-      :height="420"
+      :width="820"
+      :height="660"
+      :close-on-click-modal="false"
     >
-      <p class="edit-panel__hint">编辑面板内容待接入，当前节点数据如下：</p>
-
-      <dl class="edit-panel__list">
-        <div class="edit-panel__row">
-          <dt>节点 ID</dt>
-          <dd>{{ editDialog.id }}</dd>
-        </div>
-        <div class="edit-panel__row">
-          <dt>类型</dt>
-          <dd>{{ editDialog.data?.label || '-' }}</dd>
-        </div>
-        <div class="edit-panel__row">
-          <dt>模式</dt>
-          <dd>{{ editDialog.data?.mode === 'perfect' ? '完美像素画' : '高清像素画' }}</dd>
-        </div>
-        <div class="edit-panel__row">
-          <dt>模型</dt>
-          <dd>{{ editDialog.data?.model || '默认模型' }}</dd>
-        </div>
-        <div class="edit-panel__row">
-          <dt>尺寸</dt>
-          <dd>{{ editDialog.data?.size }}×{{ editDialog.data?.size }}</dd>
-        </div>
-      </dl>
-
-      <p class="edit-panel__prompt">{{ editDialog.data?.prompt || '（提示词为空）' }}</p>
-
-      <template #footer>
-        <button class="edit-panel__btn" type="button" @click="editDialog.visible = false">
-          关闭
-        </button>
-      </template>
+      <PixelEditor
+        :image="editDialog.data?.image || ''"
+        :size="editDialog.data?.size || 64"
+        @apply="onPixelApply"
+      />
     </ResizableDialog>
   </div>
 </template>
@@ -688,63 +670,5 @@ function preventNativeMenu(e) {
   border-radius: 0;
 }
 
-/* ---------------- 编辑弹窗内容（面板待接入，先展示节点数据） ---------------- */
-
-.edit-panel__hint {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: var(--muted, #767f92);
-}
-
-.edit-panel__list {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-}
-
-.edit-panel__row {
-  display: flex;
-  gap: 12px;
-  font-size: 13px;
-}
-
-.edit-panel__row dt {
-  flex: none;
-  width: 72px;
-  color: var(--muted, #767f92);
-}
-
-.edit-panel__row dd {
-  min-width: 0;
-  margin: 0;
-  word-break: break-all;
-}
-
-.edit-panel__prompt {
-  margin: 12px 0 0;
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  background: #0f131a;
-  border: 1px solid var(--border2, #343c4c);
-  border-radius: var(--r-sm, 6px);
-}
-
-.edit-panel__btn {
-  padding: 7px 18px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent-ink, #201404);
-  background: var(--accent, #f0a63d);
-  border: none;
-  border-radius: var(--r-sm, 6px);
-  cursor: pointer;
-  transition: opacity 0.15s ease;
-}
-
-.edit-panel__btn:hover {
-  opacity: 0.88;
-}
+/* 编辑弹窗的内容全部由 PixelEditor 自带样式，这里不再留节点数据的展示样式 */
 </style>

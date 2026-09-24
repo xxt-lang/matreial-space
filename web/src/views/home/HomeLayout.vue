@@ -8,9 +8,9 @@
  */
 import { RouterView } from 'vue-router'
 
-import AppIcon from '../../components/AppIcon.vue'
+import AppIcon from '../../components/AppIcon/AppIcon.vue'
 
-/** 左侧导航项：入口、图标与顺序只在这里维护（icon 取值见 components/AppIcon.vue） */
+/** 左侧导航项：入口、图标与顺序只在这里维护（icon 取值 = components/AppIcon/icon/ 下的文件名） */
 const NAV_ITEMS = [
   { to: '/workspaces', label: '工作空间管理', icon: 'workspace' },
   { to: '/llm', label: 'LLM 配置', icon: 'llm' },

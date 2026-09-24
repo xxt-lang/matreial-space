@@ -12,16 +12,22 @@ src/
 ├─ api/                            # 跨页面共用的接口层
 │  └─ workspace.js                 # 工作空间接口（首页与画布共用，调 /api/workspaces）
 ├─ components/                     # 全局通用组件
-│  ├─ AppIcon.vue                  # 公共图标：<AppIcon type="workspace" />，按 type 渲染内置 svg
+│  ├─ AppIcon/                     # 公共图标
+│  │  ├─ AppIcon.vue               #   组件：<AppIcon type="workspace" />，按 type 内联 icon/ 下的 svg
+│  │  └─ icon/                     #   图标文件：一个图标一个 svg，文件名即 type
+│  ├─ PixelEditor/                 # 像素画编辑器（独立组件，见下方「像素画编辑器」）
+│  │  ├─ PixelEditor.vue           #   外壳：工具条 / 调色板 / 缩放 / 撤销栈 / 导出
+│  │  ├─ PixelCanvas.vue           #   画布：双层 canvas 渲染 + 指针取像素坐标
+│  │  └─ pixel.js                  #   像素内核：画点 / 直线 / 油漆桶 / 快照等纯函数
 │  └─ ResizableDialog.vue          # 可拖动 / 可调整大小的弹窗（交互对齐 Element Dialog）
 └─ views/
    ├─ home/                        # 首页：左侧导航 + 子页面（不带画布）
    │  ├─ HomeLayout.vue            # 布局：左侧纯图标导航（固定 + 垂直居中）+ 右侧 router-view
-   │  ├─ WorkspaceManage.vue       # 工作空间管理（默认页）：列表 / 新建 / 删除二次确认 / 双击进画布
+   │  ├─ WorkspaceManage.vue       # 工作空间管理（默认页）：卡片网格 / 新建 / 删除二次确认 / 双击进画布
    │  ├─ LLMConfig.vue             # LLM 配置（占位页）
    │  └─ SkillConfig.vue           # Skill 配置（占位页）
    ├─ workSpace/                   # 画布工作区（独立全屏页）
-   │  ├─ work.vue                  # 画布宿主：节点 / 连线的增删改、顶部工作空间名称胶囊
+   │  ├─ work.vue                  # 画布宿主：节点/连线增删改、顶部名称胶囊、节点编辑弹窗（内嵌像素画编辑器）
    │  ├─ api/                      # 接口层（当前为本地模拟实现，接入后端时替换实现即可）
    │  ├─ assistComponent/          # 工作区公共组件
    │  │  ├─ ContextMenu.vue        # 画布右键菜单
@@ -51,6 +57,42 @@ src/
   鼠标悬浮这个小角会临时展开，点「显示」则保持展开。
 
 节点/连线数据仍是内存态，按空间加载 / 保存画布是下一步的接入点。
+
+## 像素画编辑器
+
+`src/components/PixelEditor/`：独立组件，不掺业务。当前宿主是画布节点的编辑弹窗
+（`work.vue` 里节点工具栏「编辑」→ 弹窗内嵌编辑器 → 「应用到节点」写回 `node.data.image`）。
+
+```vue
+<PixelEditor :image="data.image" :size="data.size" @apply="onApply" />
+```
+
+| prop / emit | 类型 | 说明 |
+| --- | --- | --- |
+| `image` | String | 初始内容（dataURL 或同源 URL），为空表示从空白开始；加载后成为撤销栈起点 |
+| `size` | Number | 像素画边长。编辑器内**只读**——尺寸的唯一来源是节点工具栏，避免两处都能改 |
+| `apply` | event | 点「应用到节点」时抛出 1:1 的 PNG dataURL |
+
+| 文件 | 职责 |
+| --- | --- |
+| `PixelEditor.vue` | 外壳：工具条 / 调色板 / 缩放 / 撤销栈 / 应用与导出 |
+| `PixelCanvas.vue` | 画布：双层 canvas 渲染 + 指针坐标映射，不认识「工具」语义 |
+| `pixel.js` | 像素内核：画点 / 直线 / 油漆桶 / 快照 / 颜色互转，纯函数、不碰 DOM |
+
+几个关键设计：
+
+- **数据格式**：`Uint8ClampedArray`，长度 `size × size × 4` 按 RGBA 排列，和 `ImageData.data`
+  完全一致，可以直接互相构造，省掉一次逐像素拷贝。
+- **两层 canvas**：底图尺寸就是 `size × size`（1 个数据点 = 1 个画布像素），靠 CSS 放大 +
+  `image-rendering: pixelated` 做最近邻放大；网格单独一层、画在「显示尺寸」上，放大后仍是 1px 细线
+  （画在底图上会被一起放大成粗条）。
+- **就地修改 + `version`**：缓冲由编辑器持有并就地改，TypedArray 改内容不会触发 Vue 响应，
+  所以改完把 `version` +1 通知画布重绘。
+- **撤销栈存整块快照**（64×64 只有 16KB），记「状态」而不是「操作」，撤销/重做就是指针前后移动；
+  上限 40 步，内容没变化（如用同色再填一次）不会塞进栈里。
+- **拖动补点**：指针事件是离散的，相邻两次 move 之间用 Bresenham 连成直线，快速拖动才不会画成虚线。
+- **导入导出都是 1:1**：导入用最近邻重采样，导出 `toDataURL('image/png')` 保持原始分辨率；
+  节点图片区用 `image-rendering: pixelated` 放大展示，所以小图不会糊。
 
 ## 联调后端
 
@@ -138,9 +180,10 @@ async function onNodeGenerate(payload) {
   contenteditable 内部按键尤其需要）。
 - **节点级 UI 状态写进 `node.data`**（如 `status` / `scale` / `promptInputHeight`），
   便于持久化与跨组件读取；只有纯展示的临时状态才放组件内部。
-- **图标统一走 `components/AppIcon.vue`**：`<AppIcon type="workspace" :size="18" />`，
-  不要在页面里散落内联 `<svg>`；新增图标 = 往该组件的 `ICONS` 表里加一条 path 数据
-  （统一 24×24 坐标系、只描边不填充，颜色跟随 `currentColor`）。
+- **图标统一走 `components/AppIcon/`**：`<AppIcon type="workspace" :size="18" />`，
+  不要在页面里散落内联 `<svg>`；新增图标 = 丢一个 svg 进 `AppIcon/icon/` 目录
+  （**文件名即 `type`**，按 24×24 坐标系绘制，颜色写 `currentColor` 就会跟随文字色）。
+  svg 会被组件以 `?raw` 内联进 DOM，所以不产生额外网络请求。
 - **只放图标的按钮必须补 `title` + `aria-label`**（首页左侧导航就是这么做的），
   不要让图标成为唯一的语义来源——鼠标悬浮要有提示，读屏也要能念出用途。
 

@@ -242,23 +242,29 @@ onBeforeUnmount(() => {
         v-for="item in items"
         :key="item.id"
         class="ws-list__item"
+        title="双击进入画布"
         @dblclick="openWorkspace(item, $event)"
       >
-        <div class="ws-list__main" title="双击进入画布">
+        <div class="ws-list__head">
           <p class="ws-list__name">{{ item.name }}</p>
-          <p class="ws-list__desc">{{ item.description || '（无描述）' }}</p>
-          <p class="ws-list__meta">ID {{ item.id }} · 创建于 {{ formatTime(item.created_at) }}</p>
+
+          <button
+            class="ws-list__btn"
+            :class="{ 'ws-list__btn--busy': item.status === 'deleting' }"
+            type="button"
+            title="删除该工作空间"
+            :disabled="item.status !== 'idle'"
+            @click="openDeleteDialog(item)"
+          >
+            {{ item.status === 'deleting' ? '删除中…' : '删除' }}
+          </button>
         </div>
 
-        <button
-          class="ws-list__btn"
-          :class="{ 'ws-list__btn--busy': item.status === 'deleting' }"
-          type="button"
-          :disabled="item.status !== 'idle'"
-          @click="openDeleteDialog(item)"
-        >
-          {{ item.status === 'deleting' ? '删除中…' : '删除' }}
-        </button>
+        <p class="ws-list__desc">{{ item.description || '（无描述）' }}</p>
+
+        <p class="ws-list__meta" :title="`ID ${item.id}`">
+          创建于 {{ formatTime(item.created_at) }}
+        </p>
       </li>
     </ul>
 
@@ -482,24 +488,28 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-/* ---------------- 列表 ---------------- */
+/* ---------------- 工作空间卡片网格 ---------------- */
 
+/* 每列最小 220px，宽度够就自动加列 */
 .ws-list {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
   margin: 20px 0 0;
   padding: 0;
   list-style: none;
 }
 
+/* 卡片：竖排，整卡片都是「双击进入画布」的命中区 */
 .ws-list__item {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 16px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
   background: var(--surface, #141922);
   border: 1px solid var(--border2, #343c4c);
   border-radius: var(--r, 10px);
+  cursor: pointer;
   transition: border-color 0.15s ease;
 }
 
@@ -507,29 +517,44 @@ onBeforeUnmount(() => {
   border-color: rgba(240, 166, 61, 0.45);
 }
 
-.ws-list__main {
-  flex: 1;
-  min-width: 0;
-  cursor: pointer;
+/* 首行：名称 + 删除按钮 */
+.ws-list__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .ws-list__name {
+  flex: 1;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ws-list__desc {
-  margin: 4px 0 0;
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--muted, #767f92);
+  /* 描述最多两行，同一行卡片高度不会差太多 */
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .ws-list__meta {
-  margin: 6px 0 0;
+  /* 顶到卡片底部：同一行里高度不同的卡片，下沿也对齐 */
+  margin: auto 0 0;
+  padding-top: 8px;
   font-family: var(--mono, ui-monospace, Consolas, monospace);
   font-size: 11px;
   color: #5b6376;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .ws-list__btn {
