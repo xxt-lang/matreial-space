@@ -58,3 +58,6 @@ npm run dev        # http://localhost:5173
 
 前端侧的开发约定（提交类按钮的防抖、防重复提交、可中断，画布交互类命名等）
 见 [`web/README.md`](./web/README.md) 的「开发约定」章节。
+
+后端分层（Controller / Service / Pipeline / Database / Utils）与编码约定
+见 [`server/docs/backend-standards.md`](./server/docs/backend-standards.md)。

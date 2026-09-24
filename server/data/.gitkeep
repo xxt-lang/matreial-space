@@ -1,0 +1,5 @@
+# 数据库文件目录（SQLite）
+#
+# 运行时生成的文件默认按 gitignore 忽略，仅保留本文件以固定目录结构。
+# 连接串（见 app/config.py 的 database_url 默认值 / .env 覆盖）：
+#   sqlite+aiosqlite:///./data/app.db

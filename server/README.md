@@ -43,15 +43,35 @@ server/
 ├─ app/
 │  ├─ main.py          # 入口：CORS、路由挂载、上传目录静态托管
 │  ├─ config.py        # 配置（pydantic-settings，读 .env）
-│  ├─ api/             # 路由层：health / gen / upload
-│  ├─ schemas/         # 请求 / 响应模型
-│  └─ services/        # 业务逻辑（路由只做校验与转发）
-├─ tests/              # pytest 冒烟测试
+│  ├─ api/             # ① Controller 层：health / gen / upload
+│  ├─ schemas/         # 请求 / 响应 / DTO 模型
+│  ├─ services/        # ② Service 层：业务编排、事务边界（路由只做校验与转发）
+│  ├─ pipeline/        # ③ Model pipeline 层：提示词组装、推理编排、后处理
+│  ├─ database/        # ④ Database 层：ORM 模型与仓储（唯一写 SQL 的地方）
+│  └─ utils/           # ⑤ Utils 层：图像转换、文件校验等纯函数
+├─ tests/              # pytest 测试（按层组织）
 ├─ uploads/            # 上传产物（运行时生成，已 gitignore）
+├─ data/               # SQLite 数据库文件（运行时生成，已 gitignore）
+├─ docs/               # 后端开发规范（docs/backend-standards.md）
 ├─ requirements.txt
 ├─ requirements-dev.txt
 └─ .env.example
 ```
+
+## 开发规范
+
+后端采用五层结构，依赖严格单向（Controller → Service → Pipeline / Database → Utils）：
+
+| 层 | 目录 | 职责 |
+| --- | --- | --- |
+| Controller | `app/api/` | 路由、入参校验、状态码与响应模型，不含业务逻辑 |
+| Service | `app/services/` | 用例编排、事务边界、领域异常，不感知 HTTP 与 SQL |
+| Pipeline | `app/pipeline/` | 模型流程：提示词组装 → 预处理 → 推理 → 后处理 |
+| Database | `app/database/` | ORM 模型与仓储，唯一允许出现 SQL 的地方 |
+| Utils | `app/utils/` | 图像转换、编码、文件校验等无状态纯函数 |
+
+新增代码前请先阅读 **[`docs/backend-standards.md`](./docs/backend-standards.md)**（分层职责、
+依赖方向、异常与日志、测试组织、新增能力的落地清单）。
 
 ## 接口
 

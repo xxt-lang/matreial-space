@@ -26,6 +26,8 @@ venv/
 
 # 后端运行时产物
 server/uploads/
+server/data/*
+!server/data/.gitkeep
 
 # 工具缓存
 .playwright-cli/
